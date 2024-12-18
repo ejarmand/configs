@@ -1,3 +1,3 @@
-require("earmand.core.options")
-require("earmand.core.keymaps")
-require("earmand.core.colorscheme")
+-- require("core")
+require("config.lazy")
+require("config.opts")
