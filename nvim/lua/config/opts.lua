@@ -7,7 +7,8 @@ vim.opt.foldmethod = "indent"
 vim.opt.foldlevelstart = 84
 vim.opt.termguicolors = true
 vim.opt.tabstop = 4
-vim.opt.expandtab = true
+-- preserve tabs in files
+vim.opt.expandtab = false
 vim.opt.softtabstop = 4
 vim.opt.shiftwidth = 4
 vim.opt.textwidth = 0
