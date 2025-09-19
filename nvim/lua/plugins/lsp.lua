@@ -1,0 +1,108 @@
+-- Much of this taken from https://lsp-zero.netlify.app/docs/getting-started.html
+return {
+    "neovim/nvim-lspconfig",
+    dependencies = {
+        "L3MON4D3/LuaSnip",
+    },
+    config = function()
+        -- Reserve a space in the gutter
+        -- This will avoid an annoying layout shift in the screen
+        vim.opt.signcolumn = 'yes'
+
+        local lspconfig_defaults = require('lspconfig').util.default_config
+        lspconfig_defaults.capabilities = vim.tbl_deep_extend(
+            'force',
+            lspconfig_defaults.capabilities,
+            require('cmp_nvim_lsp').default_capabilities()
+        )
+
+        -- This is where you enable features that only work
+        -- if there is a language server active in the file
+        vim.api.nvim_create_autocmd('LspAttach', {
+            desc = 'LSP actions',
+            callback = function(event)
+                local opts = {buffer = event.buf}
+
+                vim.keymap.set('n', 'K', '<cmd>lua vim.lsp.buf.hover()<cr>', opts)
+                vim.keymap.set('n', 'gd', '<cmd>lua vim.lsp.buf.definition()<cr>', opts)
+                vim.keymap.set('n', 'gD', '<cmd>lua vim.lsp.buf.declaration()<cr>', opts)
+                vim.keymap.set('n', 'gi', '<cmd>lua vim.lsp.buf.implementation()<cr>', opts)
+                vim.keymap.set('n', 'go', '<cmd>lua vim.lsp.buf.type_definition()<cr>', opts)
+                vim.keymap.set('n', 'gr', '<cmd>lua vim.lsp.buf.references()<cr>', opts)
+                vim.keymap.set('n', 'gs', '<cmd>lua vim.lsp.buf.signature_help()<cr>', opts)
+            end,
+        })
+
+
+        -- nvim-cmp setup is now handled in cmp.lua
+
+        vim.diagnostic.config({ virtual_text = true })
+
+        local version = vim.version()
+        if version.major > 0 or (version.major == 0 and version.minor >= 11) then
+            vim.o.winborder = "rounded"
+        else
+            -- Apparently no way to easily set the border for all floating windows
+            -- https://vonheikemen.github.io/devlog/tools/neovim-lsp-client-guide/
+            vim.diagnostic.config({ float = { border = "rounded" } })
+            vim.lsp.handlers['textDocument/hover'] = vim.lsp.with(
+                vim.lsp.handlers.hover,
+                {border = 'rounded'}
+            )
+            vim.lsp.handlers['textDocument/signatureHelp'] = vim.lsp.with(
+                vim.lsp.handlers.signature_help,
+                {border = 'rounded'}
+            )
+        end
+
+        -- Default server handler
+        require('mason-lspconfig').setup({
+            -- Exclude these so we can add settings manually
+            automatic_enable = {
+                exclude = {
+                    "pyright",
+                    "lua_ls"
+                }
+            },
+            ensure_installed = {
+                "lua_ls",
+                "pyright",
+                "bashls",
+            },
+            handlers = {
+                function(server_name)
+                    require("lspconfig")[server_name].setup({})
+                end,
+            }
+        })
+
+        ------------------------------------------------------
+        -- SERVER SPECIFIC CONFIGS
+        ------------------------------------------------------
+        local lspconfig = require("lspconfig")
+        lspconfig.pyright.setup({
+            -- Used to ignore pyright hints (e.g. import not accessed)
+            -- https://github.com/microsoft/pyright/discussions/5852
+            capabilities = {
+                textDocument = {
+                    publishDiagnostics = {
+                        tagSupport = {
+                            valueSet = { 2 },
+                        },
+                    },
+                },
+            },
+            settings = {
+                -- Use pyright for type info, ruff for everything else
+                disableLanguageServices = true,
+            }
+        })
+        -- https://github.com/neovim/neovim/issues/21686#issuecomment-1522446128
+        lspconfig.lua_ls.setup({
+            settings = {
+                Lua = { diagnostics = { globals = { 'vim' } } }
+            }
+        })
+        ------------------------------------------------------
+    end,
+}
