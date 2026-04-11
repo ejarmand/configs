@@ -9,12 +9,9 @@ return {
         -- This will avoid an annoying layout shift in the screen
         vim.opt.signcolumn = 'yes'
 
-        local lspconfig_defaults = require('lspconfig').util.default_config
-        lspconfig_defaults.capabilities = vim.tbl_deep_extend(
-            'force',
-            lspconfig_defaults.capabilities,
-            require('cmp_nvim_lsp').default_capabilities()
-        )
+        vim.lsp.config('*', {
+            capabilities = require('cmp_nvim_lsp').default_capabilities(),
+        })
 
         -- This is where you enable features that only work
         -- if there is a language server active in the file
@@ -69,18 +66,12 @@ return {
                 "pyright",
                 "bashls",
             },
-            handlers = {
-                function(server_name)
-                    require("lspconfig")[server_name].setup({})
-                end,
-            }
         })
 
         ------------------------------------------------------
         -- SERVER SPECIFIC CONFIGS
         ------------------------------------------------------
-        local lspconfig = require("lspconfig")
-        lspconfig.pyright.setup({
+        vim.lsp.config('pyright', {
             -- Used to ignore pyright hints (e.g. import not accessed)
             -- https://github.com/microsoft/pyright/discussions/5852
             capabilities = {
@@ -97,12 +88,14 @@ return {
                 disableLanguageServices = true,
             }
         })
+        vim.lsp.enable('pyright')
         -- https://github.com/neovim/neovim/issues/21686#issuecomment-1522446128
-        lspconfig.lua_ls.setup({
+        vim.lsp.config('lua_ls', {
             settings = {
                 Lua = { diagnostics = { globals = { 'vim' } } }
             }
         })
+        vim.lsp.enable('lua_ls')
         ------------------------------------------------------
     end,
 }
