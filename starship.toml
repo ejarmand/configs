@@ -34,6 +34,7 @@ palette = 'gruvbox_dark'
 
 [palettes.gruvbox_dark]
 color_fg0 = '#fbf1c7'
+color_fg_host = '#fbf1c7'
 color_fg1 = '#fbf1c7'
 color_fg2 = '#83a598'
 color_bg1 = '#3c3836'
@@ -49,7 +50,7 @@ color_yellow = '#d79921'
 
 [os]
 disabled = false
-style = "bg:color_magenta fg:color_fg0"
+style = "bg:color_magenta fg:color_fg_host"
 
 [os.symbols]
 Windows = "󰍲"
@@ -69,9 +70,9 @@ RedHatEnterprise = "󱄛"
 
 [hostname]
 ssh_only = false
-#style = "bg:color_magenta fg:color_fg0"
+#style = "bg:color_magenta fg:color_fg_host"
 trim_at = "."
-format="[$hostname](bg:color_magenta fg:color_fg0)"
+format="[$hostname](bg:color_magenta fg:color_fg_host)"
 
 [username]
 show_always = true
@@ -91,6 +92,7 @@ truncation_symbol = "…/"
 "~/Music" = "󰝚"
 "~/Pictures" = ""
 "~/Developer" = "󰲋"
+"~/projects" = ""
 "~" = ""
  
 [git_branch]
