@@ -81,6 +81,8 @@ ours() {
 release_install() {
   repo=$1 tag=$2 asset=$3 sums=$4 dest=$5 strip=$6
   shift 6
+  # A staging directory left by an interrupted run is listed at the end.
+  for left in "$dest".install.??????; do [ ! -d "$left" ] || echo "$left" >> "$TMP/moved"; done
   current=no
   [ "$(cat "$dest/.release-tag" 2>/dev/null)" = "$tag" ] && current=yes
   for pair in "$@"; do [ -x "$dest/${pair#*=}" ] || current=no; done
@@ -99,15 +101,20 @@ release_install() {
       curl -fsSL -o "$TMP/$sums" "$url/$sums"
       check_sha256 "$TMP/$asset" "$TMP/$sums"
     fi
-    rm -rf "$dest.new"
-    mkdir -p "$dest.new"
+    # Unpack into a directory unique to this run, next to DEST so the swap is a
+    # rename. The old copy is moved into it too. The trap (local to this tool's
+    # subshell) removes it if anything fails; no other path is ever deleted.
+    mkdir -p "${dest%/*}"
+    work=$(mktemp -d "$dest.install.XXXXXX")
+    trap 'rm -rf "$work"' EXIT
+    mkdir "$work/new"
     case $asset in
-      *.zip) unzip -q "$TMP/$asset" -d "$dest.new" ;;
-      *) tar -xzf "$TMP/$asset" -C "$dest.new" ;;
+      *.zip) unzip -q "$TMP/$asset" -d "$work/new" ;;
+      *) tar -xzf "$TMP/$asset" -C "$work/new" ;;
     esac
     rm -f "$TMP/$asset"
-    src=$dest.new
-    [ "$strip" = 1 ] && src=$(echo "$dest.new"/*)
+    src=$work/new
+    [ "$strip" = 1 ] && src=$(echo "$work/new"/*)
     [ -d "$src" ] || fail "Unexpected layout in $asset"
     for pair in "$@"; do
       [ -f "$src/${pair#*=}" ] || fail "$asset has no ${pair#*=}"
@@ -120,10 +127,16 @@ release_install() {
       echo "Moved the existing $dest to $dest.orig"
       echo "$dest.orig" >> "$TMP/moved"
     fi
-    rm -rf "$dest.old"
-    if [ -e "$dest" ]; then mv "$dest" "$dest.old"; fi
-    mv "$src" "$dest"
-    rm -rf "$dest.old" "$dest.new"
+    if [ -e "$dest" ]; then mv "$dest" "$work/old"; fi
+    if ! mv "$src" "$dest"; then
+      # Put the old copy back. If that fails too, it's kept and listed at the end.
+      if [ -e "$work/old" ] && ! mv "$work/old" "$dest"; then
+        trap - EXIT
+        echo "$work/old" >> "$TMP/moved"
+      fi
+      fail "Could not move the new copy into $dest"
+    fi
+    rm -rf "$work"
   fi
   for pair in "$@"; do link "$dest/${pair#*=}" "${pair%%=*}"; done
 }
