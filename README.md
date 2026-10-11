@@ -105,10 +105,10 @@ Each tool is unpacked under `${XDG_DATA_HOME:-~/.local/share}` (`neovim`,
 into `~/.local/bin`. The Codex fork goes in `~/.local/opt/codex-fork/current`
 (on macOS, upstream Codex goes in `codex` under the data directory), nvm in
 `${NVM_DIR:-~/.nvm}`, and Claude Code and Cursor wherever their own installers
-put them.
+put them. opencode is v2, which comes from npm rather than GitHub releases.
 
 Rerunning skips tools that are already current. Downloads are checked against
-SHA-256 sums where the project publishes them. The script never edits shell
+the checksums the project publishes, where it publishes them. The script never edits shell
 startup files; `.bashrc.d/15-tools.sh` already loads nvm. A real file in the
 way in `~/.local/bin` is moved to
 `${XDG_STATE_HOME:-~/.local/state}/configs/tool-backups/`. Older copies

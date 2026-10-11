@@ -48,6 +48,13 @@ check_sha256() {
   [ -n "$want" ] && [ "${got%% *}" = "$want" ] || fail "Checksum mismatch for ${1##*/}"
 }
 
+# Check FILE against an npm integrity string (sha512-<base64>).
+check_sha512() {
+  want=$(printf %s "${2#sha512-}" | base64 -d | od -An -v -tx1 | tr -d ' \n')
+  if [ $os = macos ]; then got=$(shasum -a 512 "$1"); else got=$(sha512sum "$1"); fi
+  [ -n "$want" ] && [ "${got%% *}" = "$want" ] || fail "Checksum mismatch for ${1##*/}"
+}
+
 # Move a real file at ~/.local/bin/NAME into the backup directory so a link
 # can take its place. Symlinks are simply replaced.
 set_aside() {
@@ -89,11 +96,14 @@ end_swap() {
 # STRIP=1 drops the archive's top-level folder. Each NAME=PATH links DEST/PATH
 # into ~/.local/bin. The new copy is unpacked next to DEST and swapped in, so
 # no files from the old version linger. Set BUILD to record something more
-# specific than TAG, for a release that is rebuilt under the same tag.
+# specific than TAG, for a release that is rebuilt under the same tag. For a
+# download that isn't a GitHub release, set BASE to the URL ASSET is under and
+# INTEGRITY to its npm-style sha512.
 release_install() {
   repo=$1 tag=$2 asset=$3 sums=$4 dest=$5 strip=$6
   shift 6
   build=${build:-$tag}
+  base=${base:-https://github.com/$repo/releases/download/$tag}
   # A staging directory left by an interrupted run is listed at the end.
   for left in "$dest".install.??????; do [ ! -d "$left" ] || echo "$left" >> "$TMP/moved"; done
   current=no
@@ -108,12 +118,12 @@ release_install() {
     if [ -e "$dest" ] && [ ! -e "$dest/.release-tag" ] && [ -e "$dest.orig" ]; then
       fail "$dest wasn't installed by this script and $dest.orig is taken; move one of them away"
     fi
-    url=https://github.com/$repo/releases/download/$tag
-    curl -fsSL -o "$TMP/$asset" "$url/$asset"
+    curl -fsSL -o "$TMP/$asset" "$base/$asset"
     if [ -n "$sums" ]; then
-      curl -fsSL -o "$TMP/$sums" "$url/$sums"
+      curl -fsSL -o "$TMP/$sums" "$base/$sums"
       check_sha256 "$TMP/$asset" "$TMP/$sums"
     fi
+    if [ -n "${integrity-}" ]; then check_sha512 "$TMP/$asset" "$integrity"; fi
     # Unpack into a directory unique to this run, next to DEST so the swap is a
     # rename. The old copy is moved into it too. The trap (local to this tool's
     # subshell) cleans it up even if the run is interrupted; no other path is
@@ -178,15 +188,26 @@ install_codex() {
 }
 
 install_opencode() {
-  # $DATA/opencode is opencode's own data (sessions, auth, and bin/ for the
-  # language servers it downloads), so the binary gets cli/. The baseline
-  # build is for CPUs without AVX2. The repo moved from sst/opencode.
-  if [ $os = macos ]; then asset=opencode-darwin-arm64.zip
-  elif grep -qw avx2 /proc/cpuinfo; then asset=opencode-linux-x64.tar.gz
-  else asset=opencode-linux-x64-baseline.tar.gz
+  # opencode v2 isn't on GitHub releases, which still carry v1. Like its own
+  # installer (opencode.ai/v2/install), ask opencode.ai for the latest version
+  # and npm package, then fetch that package's binary from npm.
+  # $DATA/opencode is opencode's own data (sessions, auth), so the binary gets
+  # cli/. The baseline build is for CPUs without AVX2.
+  meta=$(curl -fsSL https://opencode.ai/update/api/latest/cli/npm)
+  version=$(echo "$meta" | sed -n 's/.*"version":"\([^"]*\)".*/\1/p')
+  scope=$(echo "$meta" | sed -n 's/.*"package":"\([^"]*\)".*/\1/p')
+  [ -n "$version" ] && [ -n "$scope" ] || fail "Could not find opencode's latest version"
+  scope=${scope%/cli}
+  if [ $os = macos ]; then target=darwin-arm64
+  elif grep -qw avx2 /proc/cpuinfo; then target=linux-x64
+  else target=linux-x64-baseline
   fi
-  tag=$(latest_tag anomalyco/opencode)
-  release_install anomalyco/opencode "$tag" "$asset" "" "$DATA/opencode/cli" 0 opencode=opencode
+  pkg=$scope/cli-$target
+  integrity=$(curl -fsSL "https://registry.npmjs.org/$scope%2fcli-$target/$version" |
+    sed -n 's/.*"integrity":"\([^"]*\)".*/\1/p')
+  [ -n "$integrity" ] || fail "Could not find $pkg $version on npm"
+  base=https://registry.npmjs.org/$pkg/-
+  release_install "$pkg" "v$version" "cli-$target-$version.tgz" "" "$DATA/opencode/cli" 1 opencode=bin/opencode
 }
 
 install_starship() {
