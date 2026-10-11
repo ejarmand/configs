@@ -52,11 +52,10 @@ PATH helper avoids duplicate entries, and `~/.local/bin` is restored to the
 front after optional tool hooks. `multikill` now uses `pkill -f` with a required,
 nonempty process pattern instead of parsing `ps` output.
 
-Binary installation and updates belong to issue #3. This draft only gives
-`~/.local/bin` precedence and initializes shell features for installed tools;
-it does not restore old WSL paths or a fixed Mac PATH. Until issue #3 is done,
-opencode's old directory is used only if no opencode binary is otherwise found.
-It uses Bash 3.2-compatible syntax; the installer planned in #3 requires Bash 4+.
+Binaries are installed and updated by `install-tools.sh` (see below). This
+draft only gives `~/.local/bin` precedence and initializes shell features for
+installed tools; it does not restore old WSL paths or a fixed Mac PATH. The
+draft and `install-tools.sh` both use Bash 3.2-compatible syntax.
 
 ### Local migration
 
@@ -89,3 +88,29 @@ HOME="$bash_draft_home" bash --noprofile --rcfile "$bash_draft_home/.bashrc" -i
 rm -rf -- "$bash_draft_home"
 unset bash_draft_repo bash_draft_home bash_draft_snippet
 ```
+
+## Tools
+
+`install-tools.sh` installs Neovim, Codex, opencode, Starship, Pixi, uv, nvm
+with Node LTS, Claude Code and the Cursor CLI, or updates them to their latest
+release. It installs `rg` and `gh` only when they aren't already on PATH, and
+keeps its own copies updated after that.
+
+```bash
+bash ./install-tools.sh
+```
+
+Each tool is unpacked under `${XDG_DATA_HOME:-~/.local/share}` (`neovim`,
+`opencode/cli`, `starship`, `pixi`, `uv/bin`, `ripgrep`, `gh/cli`) and linked
+into `~/.local/bin`. The Codex fork goes in `~/.local/opt/codex-fork/current`
+(on macOS, upstream Codex goes in `codex` under the data directory), nvm in
+`${NVM_DIR:-~/.nvm}`, and Claude Code and Cursor wherever their own installers
+put them.
+
+Rerunning skips tools that are already current. Downloads are checked against
+SHA-256 sums where the project publishes them. The script never edits shell
+startup files; `.bashrc.d/15-tools.sh` already loads nvm. A real file in the
+way in `~/.local/bin` is moved to
+`${XDG_STATE_HOME:-~/.local/state}/configs/tool-backups/`. Older copies
+elsewhere are left alone and listed at the end so you can remove them by hand.
+It runs on Linux x86_64 and macOS arm64.

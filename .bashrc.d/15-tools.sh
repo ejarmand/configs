@@ -91,11 +91,6 @@ else
     fi
 fi
 
-# Keep opencode usable until issue #3 provides the shared binary link.
-if ! type -P opencode >/dev/null 2>&1 && [[ -x $HOME/.opencode/bin/opencode ]]; then
-    bashrc_prepend_path "$HOME/.opencode/bin"
-fi
-
 if command -v lesspipe >/dev/null 2>&1 && _bashrc_hook=$(SHELL=/bin/sh lesspipe 2>/dev/null); then
     eval "$_bashrc_hook"
 fi
