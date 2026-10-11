@@ -88,14 +88,16 @@ end_swap() {
 # holds TAG. SUMS is the release's checksum file, or "" if it publishes none.
 # STRIP=1 drops the archive's top-level folder. Each NAME=PATH links DEST/PATH
 # into ~/.local/bin. The new copy is unpacked next to DEST and swapped in, so
-# no files from the old version linger.
+# no files from the old version linger. Set BUILD to record something more
+# specific than TAG, for a release that is rebuilt under the same tag.
 release_install() {
   repo=$1 tag=$2 asset=$3 sums=$4 dest=$5 strip=$6
   shift 6
+  build=${build:-$tag}
   # A staging directory left by an interrupted run is listed at the end.
   for left in "$dest".install.??????; do [ ! -d "$left" ] || echo "$left" >> "$TMP/moved"; done
   current=no
-  [ "$(cat "$dest/.release-tag" 2>/dev/null)" = "$tag" ] && current=yes
+  [ "$(cat "$dest/.release-tag" 2>/dev/null)" = "$build" ] && current=yes
   for pair in "$@"; do [ -x "$dest/${pair#*=}" ] || current=no; done
 
   if [ $current = yes ]; then
@@ -135,7 +137,7 @@ release_install() {
       [ -f "$src/${pair#*=}" ] || fail "$asset has no ${pair#*=}"
       chmod +x "$src/${pair#*=}"
     done
-    echo "$tag" > "$src/.release-tag"
+    echo "$build" > "$src/.release-tag"
 
     if [ -e "$dest" ] && [ ! -e "$dest/.release-tag" ]; then
       mv "$dest" "$dest.orig"
@@ -160,7 +162,12 @@ install_neovim() {
 install_codex() {
   # The fork has no macOS build, so the Mac gets upstream's full package.
   if [ $os = linux ]; then
+    # Each push to the fork rebuilds and republishes fork-v<upstream version>
+    # under the same tag, so the commit the tag points at tells builds apart.
     tag=$(latest_tag ejarmand/codex)
+    sha=$(git ls-remote https://github.com/ejarmand/codex "refs/tags/$tag" | cut -f1)
+    [ -n "$sha" ] || fail "Could not find the commit of ejarmand/codex $tag"
+    build="$tag $sha"
     release_install ejarmand/codex "$tag" codex-fork-x86_64-linux.tar.gz "" \
       "$HOME/.local/opt/codex-fork/current" 0 codex=codex
   else
