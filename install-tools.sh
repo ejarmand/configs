@@ -72,6 +72,17 @@ ours() {
   return 1
 }
 
+# Remove release_install's staging directory, however the tool's subshell ends.
+# If the old copy was moved into it and DEST is missing, the old copy is moved
+# back first; if that fails, the directory is kept and listed at the end.
+end_swap() {
+  if [ -e "$work/old" ] && [ ! -e "$dest" ] && ! mv "$work/old" "$dest"; then
+    echo "$work" >> "$TMP/moved"
+  else
+    rm -rf "$work"
+  fi
+}
+
 # release_install REPO TAG ASSET SUMS DEST STRIP NAME=PATH...
 # Unpack ASSET from REPO's release TAG as the directory DEST, unless DEST already
 # holds TAG. SUMS is the release's checksum file, or "" if it publishes none.
@@ -103,10 +114,14 @@ release_install() {
     fi
     # Unpack into a directory unique to this run, next to DEST so the swap is a
     # rename. The old copy is moved into it too. The trap (local to this tool's
-    # subshell) removes it if anything fails; no other path is ever deleted.
+    # subshell) cleans it up even if the run is interrupted; no other path is
+    # ever deleted.
     mkdir -p "${dest%/*}"
     work=$(mktemp -d "$dest.install.XXXXXX")
-    trap 'rm -rf "$work"' EXIT
+    trap end_swap EXIT
+    # Bash 3.2 skips a subshell's EXIT trap when SIGTERM or SIGHUP kills it, so
+    # those exit instead. Ctrl+C already runs the EXIT trap.
+    trap 'exit 1' HUP TERM
     mkdir "$work/new"
     case $asset in
       *.zip) unzip -q "$TMP/$asset" -d "$work/new" ;;
@@ -128,15 +143,9 @@ release_install() {
       echo "$dest.orig" >> "$TMP/moved"
     fi
     if [ -e "$dest" ]; then mv "$dest" "$work/old"; fi
-    if ! mv "$src" "$dest"; then
-      # Put the old copy back. If that fails too, it's kept and listed at the end.
-      if [ -e "$work/old" ] && ! mv "$work/old" "$dest"; then
-        trap - EXIT
-        echo "$work/old" >> "$TMP/moved"
-      fi
-      fail "Could not move the new copy into $dest"
-    fi
-    rm -rf "$work"
+    # On failure the trap puts the old copy back.
+    mv "$src" "$dest" || fail "Could not move the new copy into $dest"
+    end_swap
   fi
   for pair in "$@"; do link "$dest/${pair#*=}" "${pair%%=*}"; done
 }
