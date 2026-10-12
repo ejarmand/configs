@@ -184,11 +184,36 @@ install_codex() {
     [ -n "$sha" ] || fail "Could not find the commit of ejarmand/codex $tag"
     build="$tag $sha"
     release_install ejarmand/codex "$tag" codex-fork-x86_64-linux.tar.gz "" "$DATA/codex" 0 codex=bin/codex
+    codex_sandbox
   else
     tag=$(latest_tag openai/codex)
     release_install openai/codex "$tag" codex-package-aarch64-apple-darwin.tar.gz codex-package_SHA256SUMS \
       "$DATA/codex" 0 codex=bin/codex
   fi
+}
+
+# Codex runs commands in a bwrap sandbox. It uses the first bwrap on PATH, or
+# else the one in its package, with a warning at startup.
+codex_sandbox() {
+  if [ "$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns 2>/dev/null)" = 1 ]; then
+    # Ubuntu 24.04+ strips capabilities from programs that create user
+    # namespaces unless an AppArmor profile allows it, so the bundled bwrap
+    # fails with "setting up uid map: Permission denied". Ubuntu has a profile
+    # that allows it for its own bwrap, but not for the commands bwrap runs,
+    # and doesn't load it by default. Nothing may shadow that bwrap on PATH.
+    if ours bwrap "$DATA/codex"; then rm "$BIN/bwrap"; fi
+    if ! /usr/bin/bwrap --ro-bind / / --unshare-user --unshare-net true 2>/dev/null; then
+      echo "Installing Ubuntu's bwrap and its AppArmor profile so Codex can sandbox commands (needs sudo)"
+      sudo apt-get install -y bubblewrap apparmor-profiles &&
+        sudo install -m 644 /usr/share/apparmor/extra-profiles/bwrap-userns-restrict /etc/apparmor.d/ &&
+        sudo apparmor_parser -r /etc/apparmor.d/bwrap-userns-restrict ||
+        fail "Could not set up Ubuntu's bwrap"
+    fi
+  elif ours bwrap "$DATA/codex" || ! command -v bwrap >/dev/null; then
+    # Linking the bundled one stops the warning. A distro bwrap is left alone.
+    link "$DATA/codex/codex-resources/bwrap" bwrap
+  fi
+  bwrap --ro-bind / / --unshare-user --unshare-net true || fail "bwrap can't build Codex's sandbox"
 }
 
 install_opencode() {
