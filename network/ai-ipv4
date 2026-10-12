@@ -1,0 +1,24 @@
+#!/bin/bash
+# This file is installed as codex-ipv4 and claude-ipv4. Native installers keep
+# owning ~/.local/bin/codex and ~/.local/bin/claude, including their updates.
+set -e
+case ${0##*/} in
+    codex-ipv4) cli=codex ;;
+    claude-ipv4) cli=claude ;;
+    *) echo 'Invoke this launcher as codex-ipv4 or claude-ipv4.' >&2; exit 2 ;;
+esac
+binary=$HOME/.local/bin/$cli
+library=${XDG_DATA_HOME:-$HOME/.local/share}/configs/ai-ipv4.so
+[[ -x $binary && -r $library ]] || {
+    echo "Missing $binary or $library. Run install-ai-ipv4.sh." >&2
+    exit 1
+}
+# A static binary ignores LD_PRELOAD. Refuse it rather than silently allowing
+# IPv6 after an installer changes the binary format.
+if ! LC_ALL=C ldd "$binary" 2>/dev/null | grep -q 'libc\.so'; then
+    echo "IPv4 launcher needs a dynamically linked glibc binary: $binary" >&2
+    exit 1
+fi
+export AI_IPV4_PREVIOUS_PRELOAD=${LD_PRELOAD-}
+export LD_PRELOAD="$library${LD_PRELOAD:+:$LD_PRELOAD}"
+exec "$binary" "$@"
