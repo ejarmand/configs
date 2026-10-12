@@ -184,11 +184,82 @@ install_codex() {
     [ -n "$sha" ] || fail "Could not find the commit of ejarmand/codex $tag"
     build="$tag $sha"
     release_install ejarmand/codex "$tag" codex-fork-x86_64-linux.tar.gz "" "$DATA/codex" 0 codex=bin/codex
+    codex_sandbox
   else
     tag=$(latest_tag openai/codex)
     release_install openai/codex "$tag" codex-package-aarch64-apple-darwin.tar.gz codex-package_SHA256SUMS \
       "$DATA/codex" 0 codex=bin/codex
   fi
+}
+
+# Let the bwrap bundled with Codex build the sandbox Codex runs commands in.
+codex_sandbox() {
+  bwrap=$(cd "$DATA/codex/codex-resources" && pwd -P)/bwrap
+  # Codex warns at startup when no bwrap is on PATH, even though it falls back
+  # to the bundled one. A distro bwrap on PATH wins and is left alone.
+  if ours bwrap "$DATA/codex" || ! command -v bwrap >/dev/null; then
+    link "$DATA/codex/codex-resources/bwrap" bwrap
+  fi
+  # Ubuntu 24.04+ strips capabilities from unconfined programs in new user
+  # namespaces, so bwrap fails with "setting up uid map: Permission denied".
+  # Ubuntu's bwrap-userns-restrict profile only covers /usr/bin/bwrap; this is
+  # the same profile as a separate one for Codex's copies, so the restriction
+  # still applies to everything else. AppArmor matches resolved paths, and the
+  # app-server daemon runs from its own copy of the package.
+  if [ "$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns 2>/dev/null)" = 1 ]; then
+    codex_home=$(cd "${CODEX_HOME:-$HOME/.codex}" 2>/dev/null && pwd -P) || codex_home=${CODEX_HOME:-$HOME/.codex}
+    cat > "$TMP/codex-bwrap" <<EOF
+# Installed by install-tools.sh from github.com/ejarmand/configs. bwrap may
+# create user namespaces and use capabilities in them; the commands it
+# sandboxes may not. Remove with:
+#   sudo apparmor_parser -R /etc/apparmor.d/codex-bwrap && sudo rm /etc/apparmor.d/codex-bwrap
+
+abi <abi/4.0>,
+
+include <tunables/global>
+
+profile codex-bwrap /{${bwrap#/},${codex_home#/}/packages/*/releases/*/codex-resources/bwrap} flags=(attach_disconnected) {
+  allow capability,
+  allow file rwlkm /{**,},
+  allow network,
+  allow unix,
+  allow ptrace,
+  allow signal,
+  allow mqueue,
+  allow io_uring,
+  allow userns,
+  allow mount,
+  allow umount,
+  allow pivot_root,
+  allow dbus,
+  allow px /** -> codex-bwrap//&unpriv_codex_bwrap,
+}
+
+profile unpriv_codex_bwrap flags=(attach_disconnected) {
+  allow file rwlkm /{**,},
+  allow network,
+  allow unix,
+  allow ptrace,
+  allow signal,
+  allow mqueue,
+  allow io_uring,
+  allow userns,
+  allow mount,
+  allow umount,
+  allow pivot_root,
+  allow dbus,
+  allow pix /** -> &unpriv_codex_bwrap,
+  audit deny capability,
+}
+EOF
+    if ! cmp -s "$TMP/codex-bwrap" /etc/apparmor.d/codex-bwrap; then
+      echo "Installing /etc/apparmor.d/codex-bwrap so Codex's bwrap can build its sandbox (needs sudo)"
+      sudo install -m 644 "$TMP/codex-bwrap" /etc/apparmor.d/codex-bwrap &&
+        sudo apparmor_parser -r /etc/apparmor.d/codex-bwrap ||
+        fail "Could not load /etc/apparmor.d/codex-bwrap"
+    fi
+  fi
+  "$bwrap" --ro-bind / / --unshare-user --unshare-net true || fail "$bwrap can't build Codex's sandbox"
 }
 
 install_opencode() {

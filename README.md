@@ -139,3 +139,14 @@ way in `~/.local/bin` is moved to
 `${XDG_STATE_HOME:-~/.local/state}/configs/tool-backups/`. Older copies
 elsewhere are left alone and listed at the end so you can remove them by hand.
 It runs on Linux x86_64 and macOS arm64.
+
+On Linux, Codex's sandbox uses the `bwrap` bundled in its package. If no other
+`bwrap` is on PATH, the script links the bundled one into `~/.local/bin`, which
+stops Codex's "could not find bubblewrap" warning. On Ubuntu 24.04+, AppArmor
+strips capabilities from programs that create user namespaces. Without a
+profile, the bundled `bwrap` fails and so does every command Codex sandboxes.
+The script uses sudo to install `/etc/apparmor.d/codex-bwrap`: Ubuntu's
+`bwrap-userns-restrict` profile, attached to Codex's copies of `bwrap` instead
+of `/usr/bin/bwrap`. It's added next to Ubuntu's profiles, not in place of
+them, so the restriction still applies to everything else. The file says how
+to remove it.
