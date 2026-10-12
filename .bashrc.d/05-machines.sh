@@ -28,3 +28,12 @@ if [[ -n $_bashrc_storage ]]; then
     export PIXI_HOME="$_bashrc_storage/.pixi"
 fi
 unset _bashrc_storage
+
+# install-tools.sh reads this file too, so nvm is installed where shells load it.
+if [[ -z ${NVM_DIR-} ]]; then
+    NVM_DIR="$HOME/.nvm"
+    if [[ -r /usr/share/nvm/init-nvm.sh && -n ${XDG_CONFIG_HOME-} ]]; then
+        NVM_DIR="$XDG_CONFIG_HOME/nvm"
+    fi
+fi
+export NVM_DIR
