@@ -1,0 +1,20 @@
+#!/bin/bash
+# Native Claude installers keep owning ~/.local/bin/claude and its updates.
+set -e
+binary=$HOME/.local/bin/claude
+# Installed beside the library and linked into ~/.local/bin. GUI processes may
+# not have loaded the shell's XDG settings, so resolve the installed location.
+library=$(dirname -- "$(readlink -f -- "$0")")/ai-ipv4.so
+[[ -x $binary && -r $library ]] || {
+    echo "Missing $binary or $library. Run install-tools.sh." >&2
+    exit 1
+}
+# A static binary ignores LD_PRELOAD. Refuse it rather than silently allowing
+# IPv6 after an installer changes the binary format.
+if ! LC_ALL=C ldd "$binary" 2>/dev/null | grep -q 'libc\.so'; then
+    echo "IPv4 launcher needs a dynamically linked glibc binary: $binary" >&2
+    exit 1
+fi
+export AI_IPV4_PREVIOUS_PRELOAD=${LD_PRELOAD-}
+export LD_PRELOAD="$library${LD_PRELOAD:+:$LD_PRELOAD}"
+exec "$binary" "$@"

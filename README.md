@@ -155,3 +155,29 @@ On pandiero, tumba and qinto, the script also makes Codex connect over IPv4
 only. It adds the fork's `ip_family = "ipv4"` to the top of
 `${CODEX_HOME:-~/.codex}/config.toml`, unless the file already sets
 `ip_family`, in which case that setting is kept.
+
+### Claude IPv4 workaround
+
+On pandiero, tumba and qinto, ordinary `bash ./install-tools.sh` also installs
+`claude-ipv4` after installing or updating native Claude. It requires `cc` and
+a dynamically linked glibc binary. Other machines keep their normal networking.
+Codex continues to use its native `ip_family` setting.
+
+The existing `15-tools.sh` snippet routes Bash's `claude` command through the
+launcher when installed. Open a new shell after setup. For T3 or another GUI
+launcher, select the absolute `~/.local/bin/claude-ipv4` path and restart the
+provider. Native Claude updates retain ownership of `~/.local/bin/claude`.
+
+The launcher and library live together under
+`${XDG_DATA_HOME:-~/.local/share}/configs/claude-ipv4`, so GUI launches do not
+need the shell's XDG settings. The library restricts Claude's external
+connections to IPv4, preserves local IPv6 loopback, and does not propagate to
+commands Claude launches. IPv6-only services may be unreachable from Claude.
+
+To disable it until the next tool installation, remove
+`~/.local/bin/claude-ipv4`, open a new shell, and restore the native Claude
+executable path in GUI launchers.
+
+Run `python3 network/check-claude-ipv4-install.py` for offline installation
+checks. The socket check is `network/check-ai-ipv4.py`, run with the installed
+`ai-ipv4.so` in `LD_PRELOAD` and `AI_IPV4_PREVIOUS_PRELOAD` empty.

@@ -11,6 +11,8 @@
 # place and listed at the end. Runs on Linux x86_64 and macOS arm64, under
 # bash 3.2+.
 
+[ $# = 0 ] || { echo "Usage: $0" >&2; exit 2; }
+
 case "$(uname -s)/$(uname -m)" in
   Linux/x86_64) os=linux triple=x86_64-unknown-linux-musl ;;
   Darwin/arm64) os=macos triple=aarch64-apple-darwin ;;
@@ -21,8 +23,13 @@ case "$(uname -s)/$(uname -m)" in
 esac
 
 bashrc_prepend_path() { PATH="$1:$PATH"; }
+CONFIGS_REPO=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 # shellcheck source=.bashrc.d/05-machines.sh
-. "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/.bashrc.d/05-machines.sh" || exit 1
+. "$CONFIGS_REPO/.bashrc.d/05-machines.sh" || exit 1
+
+# These machines already use IPv4 for Codex; apply the same policy to Claude.
+ai_ipv4=no
+case ${HOSTNAME%%.*} in pandiero | tumba | qinto) ai_ipv4=yes ;; esac
 
 BIN=$HOME/.local/bin
 DATA=${XDG_DATA_HOME:-$HOME/.local/share}
@@ -224,7 +231,7 @@ codex_sandbox() {
 # IPv4. A top-level key has to come before the first [table], so the line goes
 # at the top of config.toml. An ip_family that's already set is left alone.
 codex_ip_family() {
-  case ${HOSTNAME%%.*} in pandiero | tumba | qinto) ;; *) return 0 ;; esac
+  [ "$ai_ipv4" = yes ] || return 0
   config=${CODEX_HOME:-$HOME/.codex}/config.toml
   current=$(awk '/^[[:space:]]*\[/ { exit } /^[[:space:]]*ip_family[[:space:]]*=/ { print; exit }' \
     "$config" 2>/dev/null) || current=
@@ -346,6 +353,17 @@ install_claude() {
     curl -fsSL -o "$TMP/claude-install.sh" https://claude.ai/install.sh
     bash "$TMP/claude-install.sh"
   fi
+
+  # Install after the native binary, including when it was already current.
+  [ "$os" = linux ] && [ "$ai_ipv4" = yes ] || return 0
+  dest=$DATA/configs/claude-ipv4
+  mkdir -p "$dest"
+  cc -shared -fPIC -O2 -Wall -Wextra -Werror -o "$TMP/ai-ipv4.so" "$CONFIGS_REPO/network/ai-ipv4.c" -ldl
+  install -m 755 "$TMP/ai-ipv4.so" "$dest/ai-ipv4.so"
+  install -m 755 "$CONFIGS_REPO/network/claude-ipv4" "$dest/claude-ipv4"
+  link "$dest/claude-ipv4" claude-ipv4
+  echo "Installed $BIN/claude-ipv4"
+  "$BIN/claude-ipv4" --version
 }
 
 install_cursor() {
