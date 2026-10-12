@@ -4,8 +4,9 @@ case ${HOSTNAME%%.*} in
     luogeng)
         _bashrc_storage=/media/earmand
         export NVM_DIR="$_bashrc_storage/.local/.nvm"
-        # The root disk, which holds /home and /tmp, is full.
-        if [[ -d $_bashrc_storage/tmp ]]; then
+        # The root disk, which holds /home and /tmp, is full. Only skip TMPDIR
+        # if the drive isn't mounted.
+        if [[ -d $_bashrc_storage/tmp ]] || mkdir -p "$_bashrc_storage/tmp" 2>/dev/null; then
             export TMPDIR="$_bashrc_storage/tmp"
         fi
         ;;
