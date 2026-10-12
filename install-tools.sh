@@ -11,7 +11,10 @@
 # place and listed at the end. Runs on Linux x86_64 and macOS arm64, under
 # bash 3.2+.
 
-[ $# = 0 ] || { echo "Usage: $0" >&2; exit 2; }
+case "$#:${1-}" in
+  0: | 1:--codex-sandbox | 1:--check-codex-sandbox) ;;
+  *) echo "Usage: $0 [--codex-sandbox | --check-codex-sandbox]" >&2; exit 2 ;;
+esac
 
 case "$(uname -s)/$(uname -m)" in
   Linux/x86_64) os=linux triple=x86_64-unknown-linux-musl ;;
@@ -36,6 +39,10 @@ DATA=${XDG_DATA_HOME:-$HOME/.local/share}
 BACKUP=${XDG_STATE_HOME:-$HOME/.local/state}/configs/tool-backups/$(date -u +%Y%m%dT%H%M%SZ)-$$
 USER_PATH=$PATH
 export PATH="$BIN:$PATH"
+if [ "${1-}" = --check-codex-sandbox ]; then
+  /bin/bash "$CONFIGS_REPO/install/codex-sandbox.sh" check "$DATA/codex/codex-resources/bwrap"
+  exit $?
+fi
 mkdir -p "$BIN" "$DATA" || exit 1
 TMP=$(mktemp -d) || exit 1
 trap 'rm -rf "$TMP"' EXIT
@@ -202,28 +209,11 @@ install_codex() {
   fi
 }
 
-# Codex runs commands in a bwrap sandbox. It uses the first bwrap on PATH, or
-# else the one in its package, with a warning at startup.
+# Check the sandbox first, then offer one privileged setup step if needed.
 codex_sandbox() {
-  if [ "$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns 2>/dev/null)" = 1 ]; then
-    # Ubuntu 24.04+ strips capabilities from programs that create user
-    # namespaces unless an AppArmor profile allows it, so the bundled bwrap
-    # fails with "setting up uid map: Permission denied". Ubuntu has a profile
-    # that allows it for its own bwrap, but not for the commands bwrap runs,
-    # and doesn't load it by default. Nothing may shadow that bwrap on PATH.
-    if ours bwrap "$DATA/codex"; then rm "$BIN/bwrap"; fi
-    if ! /usr/bin/bwrap --ro-bind / / --unshare-user --unshare-net true 2>/dev/null; then
-      echo "Installing Ubuntu's bwrap and its AppArmor profile so Codex can sandbox commands (needs sudo)"
-      sudo apt-get install -y bubblewrap apparmor-profiles &&
-        sudo install -m 644 /usr/share/apparmor/extra-profiles/bwrap-userns-restrict /etc/apparmor.d/ &&
-        sudo apparmor_parser -r /etc/apparmor.d/bwrap-userns-restrict ||
-        fail "Could not set up Ubuntu's bwrap"
-    fi
-  elif ours bwrap "$DATA/codex" || ! command -v bwrap >/dev/null; then
-    # Linking the bundled one stops the warning. A distro bwrap is left alone.
-    link "$DATA/codex/codex-resources/bwrap" bwrap
-  fi
-  bwrap --ro-bind / / --unshare-user --unshare-net true || fail "bwrap can't build Codex's sandbox"
+  bwrap=$(/bin/bash "$CONFIGS_REPO/install/codex-sandbox.sh" ensure "$DATA/codex/codex-resources/bwrap") ||
+    fail "Codex's sandbox is not configured"
+  link "$bwrap" bwrap
 }
 
 # The fork's ip_family setting keeps Codex's connections to one IP family, for
@@ -428,6 +418,11 @@ other_copies() {
     [ -e "$path" ] && echo "$path"
   done
 }
+
+if [ "${1-}" = --codex-sandbox ]; then
+  ( set -e; codex_sandbox )
+  exit $?
+fi
 
 failed=
 for tool in neovim codex opencode starship pixi uv node rg gh claude cursor; do
