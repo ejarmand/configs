@@ -288,6 +288,12 @@ install_claude() {
     echo "Claude Code $v is already installed"
   else
     set_aside claude
+    # The installer downloads to ~/.claude/downloads. When the data directory
+    # is elsewhere, point that into the cache so the download skips $HOME too.
+    if [ "$DATA" != "$HOME/.local/share" ] && [ ! -e "$HOME/.claude/downloads" ]; then
+      mkdir -p "${XDG_CACHE_HOME:-$HOME/.cache}/claude-downloads" "$HOME/.claude"
+      ln -s "${XDG_CACHE_HOME:-$HOME/.cache}/claude-downloads" "$HOME/.claude/downloads"
+    fi
     curl -fsSL -o "$TMP/claude-install.sh" https://claude.ai/install.sh
     bash "$TMP/claude-install.sh"
   fi

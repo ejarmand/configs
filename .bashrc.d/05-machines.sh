@@ -4,7 +4,10 @@ case ${HOSTNAME%%.*} in
     luogeng)
         _bashrc_storage=/media/earmand
         export NVM_DIR="$_bashrc_storage/.local/.nvm"
-        bashrc_prepend_path "$_bashrc_storage/.local"
+        # The root disk, which holds /home and /tmp, is full.
+        if [[ -d $_bashrc_storage/tmp ]]; then
+            export TMPDIR="$_bashrc_storage/tmp"
+        fi
         ;;
     yixing)
         _bashrc_storage=/mnt/ultracube/earmand
@@ -22,8 +25,10 @@ case ${HOSTNAME%%.*} in
 esac
 
 if [[ -n $_bashrc_storage ]]; then
-    export XDG_DATA_HOME="$_bashrc_storage/.local"
-    export XDG_STATE_HOME="$XDG_DATA_HOME/state"
+    # The same layout as a home directory, on the storage drive.
+    # migrations/<host>.sh moves data from the older .local-as-data layout.
+    export XDG_DATA_HOME="$_bashrc_storage/.local/share"
+    export XDG_STATE_HOME="$_bashrc_storage/.local/state"
     export XDG_CACHE_HOME="$_bashrc_storage/.cache"
     export PIXI_HOME="$_bashrc_storage/.pixi"
 fi
