@@ -140,13 +140,13 @@ way in `~/.local/bin` is moved to
 elsewhere are left alone and listed at the end so you can remove them by hand.
 It runs on Linux x86_64 and macOS arm64.
 
-On Linux, Codex's sandbox uses the `bwrap` bundled in its package. If no other
-`bwrap` is on PATH, the script links the bundled one into `~/.local/bin`, which
-stops Codex's "could not find bubblewrap" warning. On Ubuntu 24.04+, AppArmor
-strips capabilities from programs that create user namespaces. Without a
-profile, the bundled `bwrap` fails and so does every command Codex sandboxes.
-The script uses sudo to install `/etc/apparmor.d/codex-bwrap`: Ubuntu's
-`bwrap-userns-restrict` profile, attached to Codex's copies of `bwrap` instead
-of `/usr/bin/bwrap`. It's added next to Ubuntu's profiles, not in place of
-them, so the restriction still applies to everything else. The file says how
-to remove it.
+On Linux, Codex sandboxes commands with the first `bwrap` on PATH, or else the
+one bundled in its package, and warns at startup when none is on PATH. On
+Ubuntu 24.04+, AppArmor strips capabilities from programs that create user
+namespaces, so the bundled `bwrap` fails and so does every command Codex
+sandboxes. There, unless `/usr/bin/bwrap` already works, the script uses sudo
+to install Ubuntu's `bubblewrap` and `apparmor-profiles` packages and load the
+latter's `bwrap-userns-restrict` profile. That profile lets `/usr/bin/bwrap`
+use namespaces but keeps the restriction on the commands it runs. Elsewhere, if
+no `bwrap` is on PATH, the script links the bundled one into `~/.local/bin` to
+stop the warning.
