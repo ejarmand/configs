@@ -10,6 +10,12 @@
 # Codex's config.toml (see codex_ip_family). Old copies elsewhere are left in
 # place and listed at the end. Runs on Linux x86_64 and macOS arm64, under
 # bash 3.2+.
+# --claude-ipv4 installs only the optional Linux Claude networking workaround.
+
+if [ $# -gt 1 ] || { [ $# = 1 ] && [ "$1" != --claude-ipv4 ]; }; then
+  echo "Usage: $0 [--claude-ipv4]" >&2
+  exit 2
+fi
 
 case "$(uname -s)/$(uname -m)" in
   Linux/x86_64) os=linux triple=x86_64-unknown-linux-musl ;;
@@ -21,8 +27,9 @@ case "$(uname -s)/$(uname -m)" in
 esac
 
 bashrc_prepend_path() { PATH="$1:$PATH"; }
+CONFIGS_REPO=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 # shellcheck source=.bashrc.d/05-machines.sh
-. "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/.bashrc.d/05-machines.sh" || exit 1
+. "$CONFIGS_REPO/.bashrc.d/05-machines.sh" || exit 1
 
 BIN=$HOME/.local/bin
 DATA=${XDG_DATA_HOME:-$HOME/.local/share}
@@ -348,6 +355,24 @@ install_claude() {
   fi
 }
 
+# Opt in separately from tool updates. Codex keeps its native ip_family setting.
+install_claude_ipv4() {
+  [ "$os" = linux ] || fail "The Claude IPv4 launcher requires Linux/glibc."
+  command -v cc >/dev/null || fail "A C compiler (cc) is required."
+  [ -x "$BIN/claude" ] || fail "Missing $BIN/claude. Install native Claude Code first."
+  LC_ALL=C ldd "$BIN/claude" 2>/dev/null | grep -q 'libc\.so' ||
+    fail "IPv4 launcher needs a dynamically linked glibc binary: $BIN/claude"
+  dest=$DATA/configs/claude-ipv4
+  mkdir -p "$dest"
+  cc -shared -fPIC -O2 -Wall -Wextra -Werror -o "$TMP/ai-ipv4.so" "$CONFIGS_REPO/network/ai-ipv4.c" -ldl
+  install -m 755 "$TMP/ai-ipv4.so" "$dest/ai-ipv4.so"
+  install -m 755 "$CONFIGS_REPO/network/claude-ipv4" "$dest/claude-ipv4"
+  link "$dest/claude-ipv4" claude-ipv4
+  echo "Installed $BIN/claude-ipv4"
+  echo 'Use migrate-bash.sh --apply to enable shared Bash snippets, then open a new shell.'
+  echo "For T3 or other GUI launchers, select $BIN/claude-ipv4 as the Claude executable."
+}
+
 install_cursor() {
   # The official installer pins its version in the script and links
   # ~/.local/bin/agent and cursor-agent, deleting whatever was there.
@@ -410,6 +435,12 @@ other_copies() {
     [ -e "$path" ] && echo "$path"
   done
 }
+
+if [ "${1-}" = --claude-ipv4 ]; then
+  set -e
+  install_claude_ipv4
+  exit 0
+fi
 
 failed=
 for tool in neovim codex opencode starship pixi uv node rg gh claude cursor; do

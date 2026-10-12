@@ -1,16 +1,12 @@
 #!/bin/bash
-# This file is installed as codex-ipv4 and claude-ipv4. Native installers keep
-# owning ~/.local/bin/codex and ~/.local/bin/claude, including their updates.
+# Native Claude installers keep owning ~/.local/bin/claude and its updates.
 set -e
-case ${0##*/} in
-    codex-ipv4) cli=codex ;;
-    claude-ipv4) cli=claude ;;
-    *) echo 'Invoke this launcher as codex-ipv4 or claude-ipv4.' >&2; exit 2 ;;
-esac
-binary=$HOME/.local/bin/$cli
-library=${XDG_DATA_HOME:-$HOME/.local/share}/configs/ai-ipv4.so
+binary=$HOME/.local/bin/claude
+# Installed beside the library and linked into ~/.local/bin. GUI processes may
+# not have loaded the shell's XDG settings, so resolve the installed location.
+library=$(dirname -- "$(readlink -f -- "$0")")/ai-ipv4.so
 [[ -x $binary && -r $library ]] || {
-    echo "Missing $binary or $library. Run install-ai-ipv4.sh." >&2
+    echo "Missing $binary or $library. Run install-tools.sh --claude-ipv4." >&2
     exit 1
 }
 # A static binary ignores LD_PRELOAD. Refuse it rather than silently allowing
