@@ -1,6 +1,21 @@
 # Configs
 These are some config files, mostly for [neovim](https://neovim.io/), [starship](https://starship.rs/), and [wezterm](https://wezfurlong.org/wezterm/index.html).
 
+Neovim's `lazy-lock.json` is local to each machine and ignored by Git. Before
+pulling the commit that first removes the tracked lockfile on another machine,
+preserve that machine's copy:
+
+```bash
+lazy_lock_backup=$(mktemp)
+cp nvim/lazy-lock.json "$lazy_lock_backup"
+git restore -- nvim/lazy-lock.json
+git pull --ff-only
+cp "$lazy_lock_backup" nvim/lazy-lock.json && rm "$lazy_lock_backup"
+unset lazy_lock_backup
+```
+
+After that transition, later pulls leave the ignored local lockfile alone.
+
 They also hold my personal [Hyprkarl](https://github.com/ejarmand/hyprkarl) settings. Each one sits at its `~/.config/` path and loads over Hyprkarl's shipped defaults:
 
 - `hypr/hyprland.local.lua`: Hyprland input, group borders, Wispr binding and autostarts
