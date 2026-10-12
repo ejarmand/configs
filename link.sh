@@ -1,29 +1,67 @@
 #!/bin/bash
-# Link these configs into ~/.config. Safe to rerun: an existing link is
-# replaced, but a real file is left alone so nothing personal is lost.
+# Link managed configs. Back up replacements and leave unrelated files alone.
+set -e -o pipefail
+[[ $# == 0 ]] || { echo "Usage: $0" >&2; exit 2; }
+repo=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+bashrc_prepend_path() { export PATH="$1:$PATH"; }
+. "$repo/.bashrc.d/05-machines.sh"
+config_home=${XDG_CONFIG_HOME:-$HOME/.config}
+backup=${XDG_STATE_HOME:-$HOME/.local/state}/configs/config-backups/$(date -u +%Y%m%dT%H%M%SZ)-$$
+umask 077
 
-REPO=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
-CONFIG_HOME=${XDG_CONFIG_HOME:-$HOME/.config}
+# The backup key is relative to either home/ or config/ because XDG_CONFIG_HOME
+# can live outside HOME. A destination already pointing here needs no work.
+link_config() {
+    local source=$1 target=$2 key=$3
+    [[ $target -ef $source ]] && return 0
+    [[ -L $target && $(readlink "$target") == "$source" ]] && return 0
+    prepare_directory "$(dirname -- "$target")" "${key%/*}"
+    if [[ -e $target || -L $target ]]; then
+        mkdir -p "$(dirname -- "$backup/$key")"
+        mv -- "$target" "$backup/$key"
+        printf 'Backed up %s to %s\n' "$target" "$backup/$key"
+    fi
+    mkdir -p "$(dirname -- "$target")"
+    ln -s -- "$source" "$target"
+    printf 'Linked %s\n' "$target"
+}
 
-links=(
-  nvim
-  starship.toml
-  hypr/hyprland.local.lua
-  uwsm/env.local
-  ghostty/local.conf
-  xdg-terminals.list
-  hyprkarl/apps/t3code.conf
-)
+# Materialize directory symlinks before touching their children so switching
+# checkouts never writes into the old checkout. Keep local files such as locks.
+prepare_directory() {
+    local target=$1 key=$2 staging saved=$backup/directory-links/$2.link
+    # HOME and XDG_CONFIG_HOME themselves may intentionally point elsewhere.
+    if [[ $key != */* ]]; then mkdir -p "$target"; return; fi
+    prepare_directory "$(dirname -- "$target")" "${key%/*}"
+    if [[ -L $target || ( -e $target && ! -d $target ) ]]; then
+        staging=$(mktemp -d "$(dirname -- "$target")/.configs-link.XXXXXX")
+        if [[ -d $target ]]; then
+            cp -a "$target/." "$staging/"
+        fi
+        mkdir -p "$(dirname -- "$saved")"
+        mv -- "$target" "$saved"
+        mv -- "$staging" "$target"
+        printf 'Backed up %s to %s\n' "$target" "$saved"
+    else
+        mkdir -p "$target"
+    fi
+}
 
-status=0
-for path in "${links[@]}"; do
-  target="$CONFIG_HOME/$path"
-  if [[ -e "$target" && ! -L "$target" ]]; then
-    printf 'Skipping %s: a real file is there; move it into %s first.\n' "$target" "$REPO" >&2
-    status=1
-    continue
-  fi
-  mkdir -p "$(dirname "$target")"
-  ln -sfn "$REPO/$path" "$target"
+prepare_directory "$HOME/.bashrc.d" home/.bashrc.d
+for source in "$repo"/.bashrc.d/*.sh "$repo/.bashrc"; do
+    bash -n "$source"
+    relative=${source#"$repo/"}
+    link_config "$source" "$HOME/$relative" "home/$relative"
 done
-exit $status
+# Link only tracked Neovim files; local plugins and lazy-lock.json stay local.
+git -C "$repo" ls-files -z -- nvim | while IFS= read -r -d '' relative; do
+    link_config "$repo/$relative" "$config_home/$relative" "config/$relative"
+done
+link_config "$repo/starship.toml" "$config_home/starship.toml" config/starship.toml
+# These files override Hyprkarl's defaults; they are not server or Mac configs.
+if [[ $(uname -s) == Linux && -d ${HYPRKARL_PATH:-$HOME/.local/share/hyprkarl} ]]; then
+    for relative in hypr/hyprland.local.lua uwsm/env.local ghostty/local.conf \
+        xdg-terminals.list hyprkarl/apps/t3code.conf; do
+        link_config "$repo/$relative" "$config_home/$relative" "config/$relative"
+    done
+fi

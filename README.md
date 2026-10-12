@@ -1,6 +1,43 @@
 # Configs
 These are some config files, mostly for [neovim](https://neovim.io/), [starship](https://starship.rs/), and [wezterm](https://wezfurlong.org/wezterm/index.html).
 
+## Setup
+
+From a persistent clone on Linux x86_64 or macOS arm64, run:
+
+```bash
+bash ./setup.sh
+```
+
+Use the same command for updates. It loads the existing machine settings,
+prepares storage and applies any outstanding layout migration, installs or
+updates tools, then links configs. It stops on a failed phase and reports it;
+fix the error and rerun. Tool-specific setup, including Codex's sudo prompt
+and the Claude IPv4 helper, stays in `install-tools.sh`.
+
+Setup needs Git and the installer's download/build commands (`curl`, archive
+and checksum tools, and `cc` for the Claude IPv4 hosts). It does not provision
+an operating system or distribute credentials. Keep the clone in place while
+configs link to it. Open a new shell after setup. Existing login profiles
+are preserved; they must source `.bashrc` to load it in login shells.
+
+`link.sh` owns Bash, Neovim, and Starship configuration placement. On Linux
+with an installed Hyprkarl checkout (`$HYPRKARL_PATH`, defaulting to
+`~/.local/share/hyprkarl`), it also links the desktop overrides listed below.
+Those overrides are skipped on headless machines and macOS.
+
+Conflicting managed files are moved into
+`${XDG_STATE_HOME:-~/.local/state}/configs/config-backups/` before replacement.
+Correct links need no changes. Bash snippets and Git-tracked Neovim files are
+linked individually, preserving unrelated snippets, plugins, and the local
+`lazy-lock.json`. When a config directory points into an older checkout,
+linking copies its contents into a real local directory before replacing its
+managed files, keeping the old checkout untouched. Directory links are saved
+separately under the same backup directory.
+
+The helpers remain available for focused maintenance, but `setup.sh` is the
+normal entry point. New setup requirements belong in its ordered sequence.
+
 Neovim's `lazy-lock.json` is local to each machine and ignored by Git. Before
 pulling the commit that first removes the tracked lockfile on another machine,
 preserve that machine's copy:
@@ -24,11 +61,11 @@ They also hold my personal [Hyprkarl](https://github.com/ejarmand/hyprkarl) sett
 - `xdg-terminals.list`: default terminal
 - `hyprkarl/apps/t3code.conf`: `hk-app` recipe for T3 Code
 
-Run `./link.sh` to link everything into `~/.config/`.
+`setup.sh` applies these overrides where Hyprkarl is installed.
 
-## Shared Bash draft
+## Shared Bash
 
-The shared Bash draft replaces the old WSL startup file. `.bashrc` contains
+The shared Bash configuration replaces the old WSL startup file. `.bashrc` contains
 the PATH helper, history settings, shell options, and system completion.
 It loads readable `~/.bashrc.d/*.sh` files in filename order:
 
@@ -50,10 +87,10 @@ Aliases are enabled for noninteractive shells with `expand_aliases`. Linux
 shells; the inspected machines already do this. Programs that launch Bash
 without reading startup files still need to source `.bashrc` or set `BASH_ENV`.
 
-`link.sh` does not install this draft. `migrate-bash.sh` links each shared
-snippet separately, so other files in `~/.bashrc.d` remain local. The draft uses actual short
-hostnames for known machine settings, and detects installed tools for shared
-setup. No settings are invented for offline kalimba or inaccessible encoder.
+`link.sh` installs the shared snippets individually, so other files in
+`~/.bashrc.d` remain local. Known machine settings use actual short hostnames,
+and shared tool setup detects installed tools. No settings are invented for
+offline kalimba or inaccessible encoder.
 The legacy `.bash_aliases` has been folded into the shared aliases and helpers.
 
 Luogeng and yixing share the same XDG/Pixi redirection code with different
@@ -67,42 +104,10 @@ PATH helper avoids duplicate entries, and `~/.local/bin` is restored to the
 front after optional tool hooks. `multikill` now uses `pkill -f` with a required,
 nonempty process pattern instead of parsing `ps` output.
 
-Binaries are installed and updated by `install-tools.sh` (see below). This
-draft only gives `~/.local/bin` precedence and initializes shell features for
+Binaries are installed and updated by `install-tools.sh` (see below). The Bash configuration
+only gives `~/.local/bin` precedence and initializes shell features for
 installed tools; it does not restore old WSL paths or a fixed Mac PATH. The
-draft and `install-tools.sh` both use Bash 3.2-compatible syntax.
-
-### Local migration
-
-Preview the Bash-only changes, then apply them:
-
-```bash
-bash ./migrate-bash.sh --dry-run
-bash ./migrate-bash.sh --apply
-```
-
-The script backs up replaced files under
-`${XDG_STATE_HOME:-~/.local/state}/configs/bash-backups/`, leaves unrelated
-snippets and other configs alone, and installs the snippet links before the
-`.bashrc` link. Keep this worktree while the links point to it. Open a new
-terminal after applying. The existing local `.bash_profile` already reads
-`.bashrc`; no profile replacement is needed.
-
-To try the draft without replacing your own startup files, run this from the
-repo in a disposable home. Exit the test shell to remove that home:
-
-```bash
-bash_draft_repo=$PWD
-bash_draft_home=$(mktemp -d)
-mkdir -p "$bash_draft_home/.bashrc.d"
-ln -s "$bash_draft_repo/.bashrc" "$bash_draft_home/.bashrc"
-for bash_draft_snippet in "$bash_draft_repo"/.bashrc.d/*.sh; do
-  ln -s "$bash_draft_snippet" "$bash_draft_home/.bashrc.d/"
-done
-HOME="$bash_draft_home" bash --noprofile --rcfile "$bash_draft_home/.bashrc" -i
-rm -rf -- "$bash_draft_home"
-unset bash_draft_repo bash_draft_home bash_draft_snippet
-```
+Bash configuration and `install-tools.sh` both use Bash 3.2-compatible syntax.
 
 ## Storage machines
 
@@ -113,13 +118,18 @@ luogeng and yixing keep their data on a storage drive. On each one,
 `/tmp`, is full, so `TMPDIR` is on its drive too.
 
 Their older setups used the drive's `.local` itself as the data directory.
-`migrations/<host>.sh` moves that data into the new layout, then runs
-`migrate-bash.sh` and `install-tools.sh`, in that order. Preview first, then
-apply:
+`setup.sh` runs `migrations/<host>.sh --apply` before installing tools. These
+helpers prepare storage only. They require the storage root to exist, and
+record a successful migration in `.local/state/configs/storage-layout-v1` so
+rerunning setup does not move newly created files in the old locations.
+Known source/destination conflicts stop setup for manual reconciliation.
+yixing moves recognized application data and leaves unknown or hidden entries
+alone. luogeng moves the old less history and backs up its bare Starship binary.
+
+You can inspect storage moves without applying them:
 
 ```bash
 bash ./migrations/luogeng.sh            # or yixing.sh
-bash ./migrations/luogeng.sh --apply
 ```
 
 ## Tools
@@ -216,3 +226,10 @@ executable path in GUI launchers.
 Run `python3 network/check-claude-ipv4-install.py` for offline installation
 checks. The socket check is `network/check-ai-ipv4.py`, run with the installed
 `ai-ipv4.so` in `LD_PRELOAD` and `AI_IPV4_PREVIOUS_PRELOAD` empty.
+
+## Offline checks
+
+Run `python3 tests/check-setup.py` to exercise setup ordering, failures,
+reruns, config adoption, and storage migrations in disposable homes. It stubs
+tool downloads rather than changing the current machine. The existing network
+checks above exercise the tool-specific IPv4 installation separately.
