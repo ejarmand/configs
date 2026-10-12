@@ -1,3 +1,6 @@
+# cuica's /etc/bash.bashrc points every user at a shared copy in /etc.
+case ${STARSHIP_CONFIG-} in /etc/*) unset STARSHIP_CONFIG ;; esac
+
 if [[ -z ${STARSHIP_CONFIG-} && -r ${XDG_STATE_HOME:-$HOME/.local/state}/hyprkarl/starship.toml ]]; then
     export STARSHIP_CONFIG="${XDG_STATE_HOME:-$HOME/.local/state}/hyprkarl/starship.toml"
 fi
