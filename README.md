@@ -140,16 +140,36 @@ way in `~/.local/bin` is moved to
 elsewhere are left alone and listed at the end so you can remove them by hand.
 It runs on Linux x86_64 and macOS arm64.
 
-On Linux, Codex sandboxes commands with the first `bwrap` on PATH, or else the
-one bundled in its package, and warns at startup when none is on PATH. On
-Ubuntu 24.04+, AppArmor strips capabilities from programs that create user
-namespaces, so the bundled `bwrap` fails and so does every command Codex
-sandboxes. There, unless `/usr/bin/bwrap` already works, the script uses sudo
-to install Ubuntu's `bubblewrap` and `apparmor-profiles` packages and load the
-latter's `bwrap-userns-restrict` profile. That profile lets `/usr/bin/bwrap`
-use namespaces but keeps the restriction on the commands it runs. Elsewhere, if
-no `bwrap` is on PATH, the script links the bundled one into `~/.local/bin` to
-stop the warning.
+On Linux, the script links Codex's bundled `bwrap` into `~/.local/bin` so Codex
+uses the version shipped in its package. On Ubuntu hosts with AppArmor's
+unprivileged user namespace restriction enabled, it uses sudo to copy that
+binary into `/usr/local/lib/codex/bwrap` and load `/etc/apparmor.d/codex-bwrap`.
+The profile adapts Ubuntu's `bwrap-userns-restrict` profile to this root-owned
+path and keeps the child capability restrictions. The install step lives in
+`install/codex-sandbox.sh`. It checks the packages, helper, profile, and sandbox
+execution first. If setup is needed, it reports what is missing and asks before
+running its `setup` subcommand with sudo. That step installs missing `apparmor`
+and `apparmor-profiles` packages, updates the protected helper, and loads the
+profile. Ubuntu's `bubblewrap` and `apparmor-utils` packages are not required.
+Rerunning a configured installation does not prompt or invoke sudo. Declining
+setup, or running without an answer on stdin, leaves Codex marked as failed
+while the full installer continues with the other tools.
+
+To configure only Codex's sandbox without updating any tools, run:
+
+```bash
+./install-tools.sh --codex-sandbox
+```
+
+To check the sandbox without changing its setup:
+
+```bash
+./install-tools.sh --check-codex-sandbox
+```
+
+The check exits successfully only when the helper and profile are current and
+the sandbox smoke test passes. These sandbox commands do not update the IPv4
+configuration.
 
 On pandiero, tumba and qinto, the script also makes Codex connect over IPv4
 only. It adds the fork's `ip_family = "ipv4"` to the top of
