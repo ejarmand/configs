@@ -29,14 +29,23 @@ link_config() {
 # Materialize directory symlinks before touching their children so switching
 # checkouts never writes into the old checkout. Keep local files such as locks.
 prepare_directory() {
-    local target=$1 key=$2 staging saved=$backup/directory-links/$2.link
+    local target=$1 key=$2 staging original child relative destination saved=$backup/directory-links/$2.link
     # HOME and XDG_CONFIG_HOME themselves may intentionally point elsewhere.
     if [[ $key != */* ]]; then mkdir -p "$target"; return; fi
     prepare_directory "$(dirname -- "$target")" "${key%/*}"
     if [[ -L $target || ( -e $target && ! -d $target ) ]]; then
         staging=$(mktemp -d "$(dirname -- "$target")/.configs-link.XXXXXX")
         if [[ -d $target ]]; then
+            original=$(cd -- "$target" && pwd -P)
             cp -a "$target/." "$staging/"
+            # Relative child links must keep resolving from the old directory.
+            find "$staging" -type l -print0 | while IFS= read -r -d '' child; do
+                destination=$(readlink "$child")
+                [[ $destination != /* ]] || continue
+                relative=${child#"$staging/"}
+                rm -- "$child"
+                ln -s -- "$original/$(dirname -- "$relative")/$destination" "$child"
+            done
         fi
         mkdir -p "$(dirname -- "$saved")"
         mv -- "$target" "$saved"

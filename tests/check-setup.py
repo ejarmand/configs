@@ -28,6 +28,14 @@ class SetupChecks(unittest.TestCase):
         self.assertEqual(result.returncode == 0, ok, result.stdout + result.stderr)
         return result
 
+    def redirect_storage(self, hostname, original):
+        self.env["HOSTNAME"] = hostname
+        storage = self.root / "storage"
+        for relative in (".bashrc.d/05-machines.sh", f"migrations/{hostname}.sh"):
+            path = self.repo / relative
+            path.write_text(path.read_text().replace(original, str(storage)))
+        return storage
+
     def test_setup_orders_storage_tools_and_links_and_reruns(self):
         # Substitute only the external installer; setup and linking run normally.
         (self.repo / "install-tools.sh").write_text('''set -e
@@ -73,15 +81,11 @@ echo called >> "$HOME/installer-calls"
 
 
     def test_migration_moves_known_data_once_and_never_installs(self):
-        self.env["HOSTNAME"] = "yixing"
-        storage = self.root / "storage"
+        storage = self.redirect_storage("yixing", "/mnt/ultracube/earmand")
         old = storage / ".local"
         (old / "nvim").mkdir(parents=True)
         (old / "nvim/history").write_text("history")
         (old / "personal").mkdir()
-        (self.repo / "migrations/yixing.sh").write_text(
-            (self.repo / "migrations/yixing.sh").read_text().replace(
-                "/mnt/ultracube/earmand", str(storage)))
         (self.repo / "install-tools.sh").write_text("exit 99\n")
         self.run_script("migrations/yixing.sh", "--apply")
         self.assertEqual((old / "share/nvim/history").read_text(), "history")
@@ -109,6 +113,32 @@ echo called >> "$HOME/installer-calls"
         self.assertEqual((config / "nvim/local.lua").read_text(), "-- personal\n")
         self.assertEqual((config / "nvim/lazy-lock.json").read_text(), '{"local": true}\n')
         self.run_script("link.sh")
+
+    def test_switching_checkouts_preserves_local_symlink_referents(self):
+        old = self.root / "old"
+        (old / "nvim/nested").mkdir(parents=True)
+        (old / "local.lua").write_text("-- personal\n")
+        targets = {"local.lua": "../local.lua",
+                   "nested/local.lua": "../../local.lua",
+                   "dangling.lua": "../missing.lua",
+                   "absolute.lua": str(old / "local.lua")}
+        for relative, target in targets.items():
+            (old / "nvim" / relative).symlink_to(target)
+        config = self.home / ".config"
+        config.mkdir()
+        (config / "nvim").symlink_to("../../old/nvim")
+        for _ in range(2):
+            self.run_script("link.sh")
+            for relative in ("local.lua", "nested/local.lua", "absolute.lua"):
+                self.assertEqual((config / "nvim" / relative).read_text(), "-- personal\n")
+            dangling = config / "nvim/dangling.lua"
+            self.assertTrue(dangling.is_symlink())
+            self.assertEqual(dangling.resolve(), old / "missing.lua")
+            self.assertEqual(os.readlink(config / "nvim/absolute.lua"), targets["absolute.lua"])
+            for relative, target in targets.items():
+                self.assertEqual(os.readlink(old / "nvim" / relative), target)
+            self.assertFalse((old / "nvim/init.lua").exists())
+            self.assertEqual((old / "local.lua").read_text(), "-- personal\n")
 
     def test_required_failure_stops_before_linking_and_reports_phase(self):
         (self.repo / "install-tools.sh").write_text("echo failed-tool >&2\nexit 7\n")
@@ -138,11 +168,7 @@ echo called >> "$HOME/installer-calls"
         self.assertIn("Supported platforms", result.stderr)
 
     def test_storage_collision_and_missing_drive_stop_setup(self):
-        self.env["HOSTNAME"] = "yixing"
-        storage = self.root / "storage"
-        for relative in (".bashrc.d/05-machines.sh", "migrations/yixing.sh"):
-            path = self.repo / relative
-            path.write_text(path.read_text().replace("/mnt/ultracube/earmand", str(storage)))
+        storage = self.redirect_storage("yixing", "/mnt/ultracube/earmand")
         (self.repo / "install-tools.sh").write_text('touch "$HOME/installer-called"\n')
         result = self.run_script("setup.sh", ok=False)
         self.assertIn("drive mounted", result.stderr)
@@ -171,14 +197,10 @@ echo called >> "$HOME/installer-calls"
         self.assertNotIn("Setup complete", result.stdout)
 
     def test_luogeng_prepares_temp_and_migrates_history_before_tools(self):
-        self.env["HOSTNAME"] = "luogeng"
-        storage = self.root / "storage"
+        storage = self.redirect_storage("luogeng", "/media/earmand")
         (storage / ".local").mkdir(parents=True)
         (storage / ".local/lesshst").write_text("history")
         (storage / ".local/starship").write_text("old binary")
-        for relative in (".bashrc.d/05-machines.sh", "migrations/luogeng.sh"):
-            path = self.repo / relative
-            path.write_text(path.read_text().replace("/media/earmand", str(storage)))
         (self.repo / "install-tools.sh").write_text('set -e\n. "$(dirname "$0")/.bashrc.d/05-machines.sh"\n[ -d "$TMPDIR" ]\n[ -f "$XDG_STATE_HOME/lesshst" ]\n[ -d "$NVM_DIR" ]\n')
         self.run_script("migrations/luogeng.sh")
         self.assertFalse((storage / "tmp").exists())
