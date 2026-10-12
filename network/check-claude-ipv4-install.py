@@ -69,9 +69,12 @@ esac
         bin_dir = home / ".local/bin"
         bin_dir.mkdir(parents=True)
         (fixture / ".bashrc.d").mkdir(parents=True)
-        for name in ("install-tools.sh", "migrate-bash.sh", ".bashrc"):
+        for name in ("install-tools.sh", "link.sh", "starship.toml", ".bashrc"):
             shutil.copy2(repo / name, fixture / name)
         shutil.copytree(repo / "network", fixture / "network")
+        shutil.copytree(repo / "nvim", fixture / "nvim")
+        run("git", "init", "-q", str(fixture), env=env)
+        run("git", "-C", str(fixture), "add", "nvim", env=env)
         shutil.copy2(repo / ".bashrc.d/15-tools.sh", fixture / ".bashrc.d")
         storage = case / "storage"
         machine = (repo / ".bashrc.d/05-machines.sh").read_text()
@@ -118,7 +121,7 @@ esac
         # Direct GUI launch, with no XDG settings, then a loaded machine shell.
         gui_env = {key: value for key, value in env.items() if key != "XDG_DATA_HOME"}
         assert run(launcher, "argument with spaces", env=gui_env).stdout == "argument with spaces\n"
-        run("bash", str(fixture / "migrate-bash.sh"), "--apply", env=env)
+        run("bash", str(fixture / "link.sh"), env=env)
         assert local.read_text() == "export LOCAL_SNIPPET=preserved\n"
         result = run("bash", "--noprofile", "--norc", "-c",
                      '. "$HOME/.bashrc"; test "$LOCAL_SNIPPET" = preserved || exit 1; '

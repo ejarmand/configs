@@ -1,5 +1,5 @@
 #!/bin/bash
-# Move luogeng to the shared layout, then migrate Bash and install the tools.
+# Prepare luogeng storage. setup.sh owns the rest of machine setup.
 # Preview by default; --apply makes the changes.
 #
 # luogeng's root disk, which holds /home and /tmp, is full, so everything big
@@ -14,12 +14,13 @@ case ${1:---dry-run} in
     --apply) apply=true ;;
     *) echo "Usage: $0 [--dry-run|--apply]" >&2; exit 2 ;;
 esac
+[[ $# -le 1 ]] || { echo "Usage: $0 [--dry-run|--apply]" >&2; exit 2; }
 [[ ${HOSTNAME%%.*} == luogeng ]] || { echo "This script is for luogeng." >&2; exit 1; }
 
-repo=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 storage=/media/earmand
-backup=$storage/.local/state/configs/migration-backups/$(date -u +%Y%m%dT%H%M%SZ)
-[[ -d $storage/.local ]] || { echo "$storage/.local is missing; is the drive mounted?" >&2; exit 1; }
+backup=$storage/.local/state/configs/migration-backups/$(date -u +%Y%m%dT%H%M%SZ)-$$
+[[ -d $storage ]] || { echo "$storage is missing; is the drive mounted?" >&2; exit 1; }
+marker=$storage/.local/state/configs/storage-layout-v1
 
 step() {
     printf '  %s\n' "$*"
@@ -30,8 +31,17 @@ echo "Storage layout in $storage:"
 for dir in .local/share .local/state .cache tmp; do
     [[ -d $storage/$dir ]] || step mkdir -p "$storage/$dir"
 done
+# The historical moves run once; newly created .local entries stay put.
+if [[ -f $marker ]]; then
+    echo 'Storage layout already migrated.'
+    exit 0
+fi
 # less's history is state, not data.
-if [[ -f $storage/.local/lesshst && ! -e $storage/.local/state/lesshst ]]; then
+if [[ -f $storage/.local/lesshst ]]; then
+    if [[ -e $storage/.local/state/lesshst || -L $storage/.local/state/lesshst ]]; then
+        echo 'Both old and new less history exist. Reconcile them before rerunning setup.sh.' >&2
+        exit 1
+    fi
     step mv "$storage/.local/lesshst" "$storage/.local/state/lesshst"
 fi
 # Replaced by install-tools.sh's starship; kept in the backup, not deleted.
@@ -45,20 +55,8 @@ for entry in "$storage"/.local/* "$storage"/.local/.[!.]*; do
     echo "  Left in place, check by hand: $entry"
 done
 
-echo
-echo "Bash:"
-bash "$repo/migrate-bash.sh" "${1:---dry-run}" | sed 's/^/  /'
-
-echo
-echo "Tools:"
-if $apply; then
-    # install-tools.sh reads 05-machines.sh itself, so the old .bashrc's
-    # variables in this shell don't matter.
-    bash "$repo/install-tools.sh"
-    echo
-    echo "Done. Open a new shell so the new .bashrc takes effect."
-else
-    echo "  bash $repo/install-tools.sh"
-    echo
-    echo "Preview only. Run with --apply to migrate luogeng."
+step mkdir -p "${marker%/*}"
+step touch "$marker"
+if ! $apply; then
+    echo 'Preview only. setup.sh applies this storage migration before installing tools.'
 fi
