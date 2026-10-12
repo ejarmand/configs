@@ -6,7 +6,7 @@ binary=$HOME/.local/bin/claude
 # not have loaded the shell's XDG settings, so resolve the installed location.
 library=$(dirname -- "$(readlink -f -- "$0")")/ai-ipv4.so
 [[ -x $binary && -r $library ]] || {
-    echo "Missing $binary or $library. Run install-tools.sh --claude-ipv4." >&2
+    echo "Missing $binary or $library. Run install-tools.sh." >&2
     exit 1
 }
 # A static binary ignores LD_PRELOAD. Refuse it rather than silently allowing

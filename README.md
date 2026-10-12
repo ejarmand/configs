@@ -19,7 +19,6 @@ It loads readable `~/.bashrc.d/*.sh` files in filename order:
 
 - `05-machines.sh`: the audited storage, temp/cache, and PATH settings for
   mediator, luogeng, yixing, and the local pandiero desktop.
-- `10-ai-ipv4.sh`: Claude's optional IPv4 launcher, when installed.
 - `15-tools.sh`: optional Homebrew, Hyprkarl commands, Pixi, Cargo, Bun,
   micromamba, Conda, Vite+, nvm/fnm, and lesspipe setup, each implemented once.
 - `20-aliases.sh`: GNU or macOS color options, `ll`/`la`/`l`, `gitls`, and
@@ -157,48 +156,28 @@ only. It adds the fork's `ip_family = "ipv4"` to the top of
 `${CODEX_HOME:-~/.codex}/config.toml`, unless the file already sets
 `ip_family`, in which case that setting is kept.
 
-### Optional Claude IPv4 workaround
+### Claude IPv4 workaround
 
-On Linux machines where Claude streams repeatedly disconnect over IPv6,
-install the optional launcher after installing native Claude Code:
+On pandiero, tumba and qinto, ordinary `bash ./install-tools.sh` also installs
+`claude-ipv4` after installing or updating native Claude. It requires `cc` and
+a dynamically linked glibc binary. Other machines keep their normal networking.
+Codex continues to use its native `ip_family` setting.
 
-```bash
-bash ./install-tools.sh --claude-ipv4
-bash ./migrate-bash.sh --dry-run
-bash ./migrate-bash.sh --apply
-```
+The existing `15-tools.sh` snippet routes Bash's `claude` command through the
+launcher when installed. Open a new shell after setup. For T3 or another GUI
+launcher, select the absolute `~/.local/bin/claude-ipv4` path and restart the
+provider. Native Claude updates retain ownership of `~/.local/bin/claude`.
 
-This mode requires Linux x86_64, glibc, `cc`, and a dynamically linked native
-Claude binary in `~/.local/bin/claude`. It only installs the workaround and
-does not download or update other tools. It loads the same machine settings
-as ordinary tool installation. The launcher and preload library live together
-under `${XDG_DATA_HOME:-~/.local/share}/configs/claude-ipv4`, with a launcher
-link in `~/.local/bin`. The launcher resolves the library from that link, so
-it also works from a GUI process without the shell's XDG settings.
+The launcher and library live together under
+`${XDG_DATA_HOME:-~/.local/share}/configs/claude-ipv4`, so GUI launches do not
+need the shell's XDG settings. The library restricts Claude's external
+connections to IPv4, preserves local IPv6 loopback, and does not propagate to
+commands Claude launches. IPv6-only services may be unreachable from Claude.
 
-Open a new Bash shell after migration. The shared snippet routes `claude`
-through `~/.local/bin/claude-ipv4`. For T3 or other GUI launchers, select that
-launcher's absolute path as the Claude executable and restart the provider
-process. Native Claude updates still own `~/.local/bin/claude`. Codex uses
-its native `ip_family` setting and has no preload launcher.
+To disable it until the next tool installation, remove
+`~/.local/bin/claude-ipv4`, open a new shell, and restore the native Claude
+executable path in GUI launchers.
 
-The preload restricts Claude's external lookups and connections to IPv4,
-while preserving local IPv6 loopback and the resolver's DNS transport. It
-removes itself from the environment inherited by commands Claude launches.
-It can prevent Claude from reaching an IPv6-only service.
-
-To disable the workaround, remove `~/.local/bin/claude-ipv4`, open a new
-shell, and restore the native Claude executable path in GUI launchers. The
-installed `configs/claude-ipv4` directory can then be removed if unused.
-If you installed the earlier dual-CLI draft, also remove the old
-`~/.local/bin/codex-ipv4` link and restore the native Codex executable path
-in GUI launchers before restarting them.
-
-Check installation with a disposable home, then check socket behavior:
-
-```bash
-python3 network/check-claude-ipv4-install.py
-claude_ipv4_library=$(dirname -- "$(readlink -f -- "$HOME/.local/bin/claude-ipv4")")/ai-ipv4.so
-LD_PRELOAD="$claude_ipv4_library" AI_IPV4_PREVIOUS_PRELOAD= python3 network/check-ai-ipv4.py
-unset claude_ipv4_library
-```
+Run `python3 network/check-claude-ipv4-install.py` for offline installation
+checks. The socket check is `network/check-ai-ipv4.py`, run with the installed
+`ai-ipv4.so` in `LD_PRELOAD` and `AI_IPV4_PREVIOUS_PRELOAD` empty.

@@ -89,6 +89,11 @@ if command -v lesspipe >/dev/null 2>&1 && _bashrc_hook=$(SHELL=/bin/sh lesspipe 
     eval "$_bashrc_hook"
 fi
 
+# Installed with Claude on the machines that need IPv4.
+if [[ -x $HOME/.local/bin/claude-ipv4 ]]; then
+    claude() { "$HOME/.local/bin/claude-ipv4" "$@"; }
+fi
+
 # Resolve aliases and the prompt against the shared binaries, after tool hooks.
 bashrc_prepend_path "$HOME/.local/bin"
 unset _bashrc_brew _bashrc_candidate _bashrc_conda _bashrc_mamba _bashrc_hook
