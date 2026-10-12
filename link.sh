@@ -67,6 +67,24 @@ git -C "$repo" ls-files -z -- nvim | while IFS= read -r -d '' relative; do
     link_config "$repo/$relative" "$config_home/$relative" "config/$relative"
 done
 link_config "$repo/starship.toml" "$config_home/starship.toml" config/starship.toml
+# setup.sh updates this checkout first. Reuse the config backup policy for skills.
+skills_repo=${SKILLS_REPO:-$HOME/projects/skills}
+if [[ -d $skills_repo ]]; then
+    skills_repo=$(cd -- "$skills_repo" && pwd)
+fi
+for manifest in "$skills_repo"/skills/*/SKILL.md; do
+    [[ -f $manifest ]] || continue
+    skill=${manifest%/SKILL.md}
+    for directory in .agents/skills .claude/skills; do
+        relative=$directory/${skill##*/}
+        link_config "$skill" "$HOME/$relative" "home/$relative"
+    done
+    for source in "$skill"/bin/*; do
+        [[ -f $source && -x $source ]] || continue
+        relative=.local/bin/${source##*/}
+        link_config "$source" "$HOME/$relative" "home/$relative"
+    done
+done
 # These files override Hyprkarl's defaults; they are not server or Mac configs.
 if [[ $(uname -s) == Linux && -d ${HYPRKARL_PATH:-$HOME/.local/share/hyprkarl} ]]; then
     for relative in hypr/hyprland.local.lua uwsm/env.local ghostty/local.conf \

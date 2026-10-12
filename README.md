@@ -11,9 +11,9 @@ bash ./setup.sh
 
 Use the same command for updates. It loads the existing machine settings,
 prepares storage and applies any outstanding layout migration, installs or
-updates tools, then links configs. It stops on a failed phase and reports it;
-fix the error and rerun. Tool-specific setup, including Codex's sudo prompt
-and the Claude IPv4 helper, stays in `install-tools.sh`.
+updates tools, pulls the latest skills, then links configs and skills. It stops
+on a failed phase and reports it; fix the error and rerun. Tool-specific setup,
+including Codex's sudo prompt and the Claude IPv4 helper, stays in `install-tools.sh`.
 
 Setup needs Git and the installer's download/build commands (`curl`, archive
 and checksum tools, and `cc` for the Claude IPv4 hosts). It does not provision
@@ -37,6 +37,15 @@ separately under the same backup directory.
 
 The helpers remain available for focused maintenance, but `setup.sh` is the
 normal entry point. New setup requirements belong in its ordered sequence.
+
+Setup clones [the skills repo](https://github.com/ejarmand/skills) into
+`~/projects/skills` when missing, or runs `git pull --ff-only` in the existing
+checkout. Set `SKILLS_REPO` to use another location. Git conflicts or diverged
+history stop setup without resetting local work. The linker installs each
+canonical skill into `~/.agents/skills` and `~/.claude/skills`, and its executable
+`bin/` helpers into `~/.local/bin`, with the same backup policy as configs.
+Unrelated skills and agent settings stay in place. Keep the skills checkout
+while links point to it; rerunning setup updates it and links new skills.
 
 Neovim's `lazy-lock.json` is local to each machine and ignored by Git. Before
 pulling the commit that first removes the tracked lockfile on another machine,
