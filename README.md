@@ -150,3 +150,8 @@ latter's `bwrap-userns-restrict` profile. That profile lets `/usr/bin/bwrap`
 use namespaces but keeps the restriction on the commands it runs. Elsewhere, if
 no `bwrap` is on PATH, the script links the bundled one into `~/.local/bin` to
 stop the warning.
+
+On pandiero, tumba and qinto, the script also makes Codex connect over IPv4
+only. It adds the fork's `ip_family = "ipv4"` to the top of
+`${CODEX_HOME:-~/.codex}/config.toml`, unless the file already sets
+`ip_family`, in which case that setting is kept.

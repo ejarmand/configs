@@ -6,8 +6,10 @@
 # .bashrc.d/05-machines.sh (storage-drive XDG dirs, NVM_DIR) are loaded first,
 # so this works the same from a shell that hasn't read them.
 # Safe to rerun: a tool already at its latest release isn't downloaded again.
-# Shell startup files are never edited. Old copies elsewhere are left in place
-# and listed at the end. Runs on Linux x86_64 and macOS arm64, under bash 3.2+.
+# Shell startup files are never edited; on some hosts, one line is added to
+# Codex's config.toml (see codex_ip_family). Old copies elsewhere are left in
+# place and listed at the end. Runs on Linux x86_64 and macOS arm64, under
+# bash 3.2+.
 
 case "$(uname -s)/$(uname -m)" in
   Linux/x86_64) os=linux triple=x86_64-unknown-linux-musl ;;
@@ -185,6 +187,7 @@ install_codex() {
     build="$tag $sha"
     release_install ejarmand/codex "$tag" codex-fork-x86_64-linux.tar.gz "" "$DATA/codex" 0 codex=bin/codex
     codex_sandbox
+    codex_ip_family
   else
     tag=$(latest_tag openai/codex)
     release_install openai/codex "$tag" codex-package-aarch64-apple-darwin.tar.gz codex-package_SHA256SUMS \
@@ -214,6 +217,27 @@ codex_sandbox() {
     link "$DATA/codex/codex-resources/bwrap" bwrap
   fi
   bwrap --ro-bind / / --unshare-user --unshare-net true || fail "bwrap can't build Codex's sandbox"
+}
+
+# The fork's ip_family setting keeps Codex's connections to one IP family, for
+# networks that drop long-lived connections over the other. These hosts use
+# IPv4. A top-level key has to come before the first [table], so the line goes
+# at the top of config.toml. An ip_family that's already set is left alone.
+codex_ip_family() {
+  case ${HOSTNAME%%.*} in pandiero | tumba | qinto) ;; *) return 0 ;; esac
+  config=${CODEX_HOME:-$HOME/.codex}/config.toml
+  current=$(awk '/^[[:space:]]*\[/ { exit } /^[[:space:]]*ip_family[[:space:]]*=/ { print; exit }' \
+    "$config" 2>/dev/null) || current=
+  if [ -z "$current" ]; then
+    mkdir -p "${config%/*}"
+    { echo 'ip_family = "ipv4"'; [ ! -e "$config" ] || cat "$config"; } > "$TMP/codex-config"
+    # Writing over it, rather than moving a new file in, keeps the file's
+    # permissions and any link to it.
+    cat "$TMP/codex-config" > "$config"
+    echo "Added ip_family = \"ipv4\" to $config"
+  else
+    case $current in *ipv4*) ;; *) echo "Leaving $config's $current alone" ;; esac
+  fi
 }
 
 install_opencode() {
