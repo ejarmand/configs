@@ -89,6 +89,24 @@ rm -rf -- "$bash_draft_home"
 unset bash_draft_repo bash_draft_home bash_draft_snippet
 ```
 
+## Storage machines
+
+luogeng and yixing keep their data on a storage drive. On each one,
+`05-machines.sh` gives the drive the same layout a home directory has:
+`.local/share` for `XDG_DATA_HOME`, `.local/state` for `XDG_STATE_HOME`, and
+`.cache` for `XDG_CACHE_HOME`. luogeng's root disk, which holds `/home` and
+`/tmp`, is full, so `TMPDIR` is on its drive too.
+
+Their older setups used the drive's `.local` itself as the data directory.
+`migrations/<host>.sh` moves that data into the new layout, then runs
+`migrate-bash.sh` and `install-tools.sh`, in that order. Preview first, then
+apply:
+
+```bash
+bash ./migrations/luogeng.sh            # or yixing.sh
+bash ./migrations/luogeng.sh --apply
+```
+
 ## Tools
 
 `install-tools.sh` installs Neovim, Codex, opencode, Starship, Pixi, uv, nvm
