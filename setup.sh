@@ -21,6 +21,15 @@ mkdir -p "${XDG_DATA_HOME:-$HOME/.local/share}" \
 
 phase='tool installation'
 bash "$repo/install-tools.sh"
+phase='skills update'
+export SKILLS_REPO=${SKILLS_REPO:-$HOME/projects/skills}
+if [[ -e $SKILLS_REPO/.git ]]; then
+    git -C "$SKILLS_REPO" pull --ff-only
+else
+    git clone https://github.com/ejarmand/skills.git "$SKILLS_REPO"
+fi
+SKILLS_REPO=$(cd -- "$SKILLS_REPO" && pwd)
+[[ -d $SKILLS_REPO/skills ]] || { echo "No skills directory in $SKILLS_REPO" >&2; exit 1; }
 phase='config linking'
 bash "$repo/link.sh"
 echo 'Setup complete. Open a new shell to load the configs.'

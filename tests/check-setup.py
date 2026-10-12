@@ -21,6 +21,23 @@ class SetupChecks(unittest.TestCase):
         self.home = self.root / "home"
         self.home.mkdir()
         self.env = {"HOME": str(self.home), "PATH": os.defpath, "LANG": "C", "HOSTNAME": "server"}
+        self.upstream = self.root / "skills-upstream"
+        skill = self.upstream / "skills/example"
+        (skill / "bin").mkdir(parents=True)
+        (skill / "SKILL.md").write_text("# Example skill\n")
+        (skill / "bin/example-tool").write_text("#!/bin/sh\necho example\n")
+        (skill / "bin/example-tool").chmod(0o755)
+        subprocess.run(["git", "init", "-q", "-b", "main", str(self.upstream)], check=True)
+        self.commit_skills(self.upstream)
+        # Exercise real clone/pull without GitHub access or the user's checkout.
+        self.env.update(GIT_CONFIG_COUNT="1",
+                        GIT_CONFIG_KEY_0=f"url.{self.upstream}.insteadOf",
+                        GIT_CONFIG_VALUE_0="https://github.com/ejarmand/skills.git")
+
+    def commit_skills(self, path):
+        subprocess.run(["git", "-C", str(path), "add", "."], check=True)
+        subprocess.run(["git", "-C", str(path), "-c", "user.name=Setup test",
+                        "-c", "user.email=setup@example.invalid", "commit", "-qm", "Fixture"], check=True)
 
     def run_script(self, name, *args, ok=True):
         result = subprocess.run(["bash", str(self.repo / name), *args], env=self.env,
@@ -56,6 +73,53 @@ echo called >> "$HOME/installer-calls"
         self.assertEqual((self.home / "installer-calls").read_text(), "called\ncalled\n")
         self.assertFalse((self.home / ".config/hypr").exists())
         self.assertTrue((self.home / ".config/nvim/init.lua").exists())
+
+    def test_setup_pulls_and_links_skills_with_backups(self):
+        (self.repo / "install-tools.sh").write_text("exit 0\n")
+        skills = self.home / ".agents/skills"
+        (skills / "example").mkdir(parents=True)
+        (skills / "example/SKILL.md").write_text("local version")
+        (skills / "personal").mkdir()
+        (skills / "personal/SKILL.md").write_text("keep me")
+        self.run_script("setup.sh")
+        checkout = self.home / "projects/skills"
+        for directory in (".agents/skills", ".claude/skills"):
+            self.assertEqual((self.home / directory / "example").resolve(),
+                             checkout / "skills/example")
+        self.assertEqual((self.home / ".local/bin/example-tool").resolve(),
+                         checkout / "skills/example/bin/example-tool")
+        backups = list((self.home / ".local/state/configs/config-backups").glob(
+            "*/home/.agents/skills/example/SKILL.md"))
+        self.assertEqual(len(backups), 1)
+        self.assertEqual(backups[0].read_text(), "local version")
+        new = self.upstream / "skills/added"
+        new.mkdir()
+        (new / "SKILL.md").write_text("new skill")
+        (self.upstream / "skills/example/SKILL.md").write_text("updated skill")
+        self.commit_skills(self.upstream)
+        self.run_script("setup.sh")
+        self.assertEqual((skills / "example/SKILL.md").read_text(), "updated skill")
+        self.assertEqual((skills / "added/SKILL.md").read_text(), "new skill")
+        self.assertEqual((skills / "personal/SKILL.md").read_text(), "keep me")
+        self.assertFalse((self.home / ".claude/settings.json").exists())
+
+    def test_diverged_skills_checkout_stops_without_resetting_local_work(self):
+        (self.repo / "install-tools.sh").write_text("exit 0\n")
+        checkout = self.root / "custom skills"
+        self.env["SKILLS_REPO"] = str(checkout)
+        self.run_script("setup.sh")
+        (checkout / "local.txt").write_text("local work")
+        self.commit_skills(checkout)
+        (self.upstream / "remote.txt").write_text("remote work")
+        self.commit_skills(self.upstream)
+        (self.home / ".bashrc").unlink()
+        result = self.run_script("setup.sh", ok=False)
+        self.assertIn("skills update", result.stderr)
+        self.assertNotIn("Setup complete", result.stdout)
+        self.assertEqual((checkout / "local.txt").read_text(), "local work")
+        self.assertFalse((checkout / "remote.txt").exists())
+        self.assertFalse((self.home / ".bashrc").exists())
+        self.assertFalse((self.home / "projects/skills").exists())
 
     def test_linker_preserves_local_files_and_backs_up_replacements_once(self):
         snippets = self.home / ".bashrc.d"
