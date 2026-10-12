@@ -26,6 +26,11 @@ hl.config({
     },
 })
 
+-- Stop/start Wispr and its mic listener together to save battery when idle.
+hl.bind("SUPER + ALT + W", hl.dsp.exec_cmd("wispr-flow-toggle"), {
+    description = "Toggle Wispr Flow on/off",
+})
+
 -- SUPER + CTRL + SPACE is left free: it is Wispr Flow's hands-free shortcut
 -- Pause or resume the mic mute switch starting Wispr hands-free (hk-wispr-switch)
 hl.bind("SUPER + ALT + D", hl.dsp.exec_cmd("hk-wispr-switch toggle"), { description = "Toggle Wispr mic switch" })
