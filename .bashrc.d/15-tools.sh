@@ -68,13 +68,7 @@ fi
 
 # Keep Vite+ before nvm, matching the current local .bashrc.
 # nvm loaded last in cuica's old config. Prefer it when both managers exist.
-if [[ -z ${NVM_DIR-} ]]; then
-    NVM_DIR="$HOME/.nvm"
-    if [[ -r /usr/share/nvm/init-nvm.sh && -n ${XDG_CONFIG_HOME-} ]]; then
-        NVM_DIR="$XDG_CONFIG_HOME/nvm"
-    fi
-fi
-export NVM_DIR
+# 05-machines.sh picks NVM_DIR.
 if [[ -s $NVM_DIR/nvm.sh ]]; then
     . "$NVM_DIR/nvm.sh"
     if [[ -s $NVM_DIR/bash_completion ]]; then

@@ -1,8 +1,10 @@
 #!/bin/bash
 # Install the command-line tools these configs expect, or update them to their
 # latest release. Each tool is unpacked under ${XDG_DATA_HOME:-~/.local/share}
-# and linked into ~/.local/bin; the Codex fork goes under ~/.local/opt, nvm in
-# ${NVM_DIR:-~/.nvm}, and Claude Code and Cursor where their installers put them.
+# and linked into ~/.local/bin; nvm goes in $NVM_DIR, and Claude Code and
+# Cursor where their installers put them. The machine settings in
+# .bashrc.d/05-machines.sh (storage-drive XDG dirs, NVM_DIR) are loaded first,
+# so this works the same from a shell that hasn't read them.
 # Safe to rerun: a tool already at its latest release isn't downloaded again.
 # Shell startup files are never edited. Old copies elsewhere are left in place
 # and listed at the end. Runs on Linux x86_64 and macOS arm64, under bash 3.2+.
@@ -16,9 +18,12 @@ case "$(uname -s)/$(uname -m)" in
     ;;
 esac
 
+bashrc_prepend_path() { PATH="$1:$PATH"; }
+# shellcheck source=.bashrc.d/05-machines.sh
+. "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/.bashrc.d/05-machines.sh" || exit 1
+
 BIN=$HOME/.local/bin
 DATA=${XDG_DATA_HOME:-$HOME/.local/share}
-export NVM_DIR=${NVM_DIR:-$HOME/.nvm}
 BACKUP=${XDG_STATE_HOME:-$HOME/.local/state}/configs/tool-backups/$(date -u +%Y%m%dT%H%M%SZ)-$$
 USER_PATH=$PATH
 export PATH="$BIN:$PATH"
@@ -178,8 +183,7 @@ install_codex() {
     sha=$(git ls-remote https://github.com/ejarmand/codex "refs/tags/$tag" | cut -f1)
     [ -n "$sha" ] || fail "Could not find the commit of ejarmand/codex $tag"
     build="$tag $sha"
-    release_install ejarmand/codex "$tag" codex-fork-x86_64-linux.tar.gz "" \
-      "$HOME/.local/opt/codex-fork/current" 0 codex=codex
+    release_install ejarmand/codex "$tag" codex-fork-x86_64-linux.tar.gz "" "$DATA/codex" 0 codex=bin/codex
   else
     tag=$(latest_tag openai/codex)
     release_install openai/codex "$tag" codex-package-aarch64-apple-darwin.tar.gz codex-package_SHA256SUMS \
@@ -193,7 +197,7 @@ install_opencode() {
   # and npm package, then fetch that package's binary from npm.
   # $DATA/opencode is opencode's own data (sessions, auth), so the binary gets
   # cli/. The baseline build is for CPUs without AVX2.
-  meta=$(curl -fsSL https://opencode.ai/update/api/latest/cli/npm)
+  meta=$(curl -fsSL https://opencode.ai/update/api/latest/cli/npm) || fail "Could not ask opencode.ai for its latest version"
   version=$(echo "$meta" | sed -n 's/.*"version":"\([^"]*\)".*/\1/p')
   scope=$(echo "$meta" | sed -n 's/.*"package":"\([^"]*\)".*/\1/p')
   [ -n "$version" ] && [ -n "$scope" ] || fail "Could not find opencode's latest version"
@@ -298,6 +302,12 @@ install_cursor() {
   if [ -n "$v" ] && [ "$have" = "$v" ]; then
     echo "Cursor CLI $v is already installed"
   else
+    # The installer always writes to ~/.local/share/cursor-agent. When the data
+    # directory is elsewhere, point that path into it first.
+    if [ "$DATA" != "$HOME/.local/share" ] && [ ! -e "$HOME/.local/share/cursor-agent" ]; then
+      mkdir -p "$DATA/cursor-agent" "$HOME/.local/share"
+      ln -s "$DATA/cursor-agent" "$HOME/.local/share/cursor-agent"
+    fi
     set_aside agent
     set_aside cursor-agent
     bash "$TMP/cursor-install.sh"
@@ -331,7 +341,14 @@ other_copies() {
   done
   IFS=$old_ifs
   cat "$TMP/moved" 2>/dev/null
-  for path in "$HOME/.opencode/bin/opencode" "$HOME/.codex/packages" "$NVM_DIR"/versions/node/*/bin/codex \
+  # Copies a run made before the data directory or NVM_DIR moved.
+  if [ "$DATA" != "$HOME/.local/share" ]; then
+    for dir in neovim codex opencode/cli starship pixi uv/bin ripgrep gh/cli; do
+      [ -e "$HOME/.local/share/$dir/.release-tag" ] && echo "$HOME/.local/share/$dir"
+    done
+  fi
+  [ "$NVM_DIR" != "$HOME/.nvm" ] && [ -s "$HOME/.nvm/nvm.sh" ] && echo "$HOME/.nvm"
+  for path in "$HOME/.local/opt/codex-fork" "$HOME/.opencode/bin/opencode" "$HOME/.codex/packages" "$NVM_DIR"/versions/node/*/bin/codex \
     "$NVM_DIR"/versions/node/*/bin/claude \
     "${PIXI_HOME:-$HOME/.pixi}/bin/pixi" "$HOME/.local/share/fnm" "$DATA/fnm" /usr/local/bin/starship \
     /home/linuxbrew/.linuxbrew/bin/starship /opt/homebrew/bin/starship; do

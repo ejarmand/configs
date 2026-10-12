@@ -101,11 +101,18 @@ bash ./install-tools.sh
 ```
 
 Each tool is unpacked under `${XDG_DATA_HOME:-~/.local/share}` (`neovim`,
-`opencode/cli`, `starship`, `pixi`, `uv/bin`, `ripgrep`, `gh/cli`) and linked
-into `~/.local/bin`. The Codex fork goes in `~/.local/opt/codex-fork/current`
-(on macOS, upstream Codex goes in `codex` under the data directory), nvm in
-`${NVM_DIR:-~/.nvm}`, and Claude Code and Cursor wherever their own installers
-put them. opencode is v2, which comes from npm rather than GitHub releases.
+`codex`, `opencode/cli`, `starship`, `pixi`, `uv/bin`, `ripgrep`, `gh/cli`) and
+linked into `~/.local/bin`. On Linux `codex` is the fork's build; on macOS it's
+upstream's. nvm goes in `$NVM_DIR`, and Claude Code and Cursor wherever their
+own installers put them. Cursor's installer always writes to
+`~/.local/share/cursor-agent`, so when the data directory is elsewhere, that path
+is linked into it first. opencode is v2, which comes from npm rather than GitHub
+releases.
+
+The script loads `.bashrc.d/05-machines.sh` itself before installing anything,
+so the storage-drive data directory and `NVM_DIR` on luogeng and yixing apply
+even from a shell that hasn't read them. That file also picks the default
+`NVM_DIR` for both the installer and `15-tools.sh`.
 
 Rerunning skips tools that are already current. Downloads are checked against
 the checksums the project publishes, where it publishes them. The script never edits shell
