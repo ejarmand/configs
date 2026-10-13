@@ -69,7 +69,7 @@ They also hold my personal [Hyprkarl](https://github.com/ejarmand/hyprkarl) sett
 - `uwsm/env.local`: session environment (secrets go in the untracked `~/.config/uwsm/env.secrets`)
 - `ghostty/local.conf`: Ghostty overrides
 - `xdg-terminals.list`: default terminal
-- `hyprkarl/apps/t3code.conf`: `hk-app` recipe for T3 Code
+- `hyprkarl/apps/t3code.conf`: `hk-app` recipe for T3 Code; on install it runs `t3code-remote-update.sh`, which moves every SSH host running T3 onto a background service at the same release so a desktop restart no longer stops it
 
 `setup.sh` applies these overrides where Hyprkarl is installed.
 
