@@ -418,6 +418,29 @@ install_muse() {
     echo "Installed $BIN/muse"
   fi
 
+  # Each Muse install keeps its own contributor mode setting, which lets Meta
+  # use your content for product improvement. Keep it off, leaving the rest of
+  # the file to Muse.
+  python3 -I - "${XDG_CONFIG_HOME:-$HOME/.config}/muse/settings.json" <<'EOF' || fail "Could not turn off Muse contributor mode"
+import json, os, sys
+path = sys.argv[1]
+try:
+    with open(path) as f:
+        settings = json.load(f)
+except FileNotFoundError:
+    settings = {"schema_version": 1}
+if settings.get("contributor_mode_enabled") is False:
+    print("Muse contributor mode is off")
+    sys.exit()
+settings["contributor_mode_enabled"] = False
+os.makedirs(os.path.dirname(path), exist_ok=True)
+with open(path + ".tmp", "w") as f:
+    json.dump(settings, f, indent=2)
+    f.write("\n")
+os.replace(path + ".tmp", path)
+print(f"Turned off Muse contributor mode in {path}")
+EOF
+
   # The IPv4 launcher relies on Bash 4's coproc and GNU readlink.
   [ "$os" = linux ] && [ "$ai_ipv4" = yes ] || return 0
   # Start the repo's proxy once, before replacing a working copy. It reports

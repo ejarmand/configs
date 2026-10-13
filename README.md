@@ -147,7 +147,10 @@ bash ./migrations/luogeng.sh            # or yixing.sh
 `install-tools.sh` installs Neovim, Codex, opencode, Starship, Pixi, uv, nvm
 with Node LTS, Claude Code and the Cursor CLI, or updates them to their latest
 release. It installs Muse Code's launcher when it's missing; the launcher
-updates itself and Muse after that. It installs `rg` and `gh` only when they aren't already on PATH, and
+updates itself and Muse after that. Every run also sets
+`contributor_mode_enabled` to `false` in
+`${XDG_CONFIG_HOME:-~/.config}/muse/settings.json`, since each Muse install
+keeps its own setting. It installs `rg` and `gh` only when they aren't already on PATH, and
 keeps its own copies updated after that.
 
 ```bash
