@@ -209,14 +209,14 @@ The check exits successfully only when the helper and profile are current and
 the sandbox smoke test passes. These sandbox commands do not update the IPv4
 configuration.
 
-On pandiero, tumba and qinto, the script also makes Codex connect over IPv4
+On pandiero, tumba and quinto, the script also makes Codex connect over IPv4
 only. It adds the fork's `ip_family = "ipv4"` to the top of
 `${CODEX_HOME:-~/.codex}/config.toml`, unless the file already sets
 `ip_family`, in which case that setting is kept.
 
 ### Claude IPv4 workaround
 
-On pandiero, tumba and qinto, ordinary `bash ./install-tools.sh` also installs
+On pandiero, tumba and quinto, ordinary `bash ./install-tools.sh` also installs
 `claude-ipv4` after installing or updating native Claude. It requires `cc` and
 a dynamically linked glibc binary. Other machines keep their normal networking.
 Codex continues to use its native `ip_family` setting.
@@ -245,8 +245,13 @@ checks. The socket check is `network/check-ai-ipv4.py`, run with the installed
 `~/.local/bin/muse` is Muse Code's launcher, a wrapper that updates itself and
 runs a statically linked binary. That binary has no IP family setting and
 ignores `LD_PRELOAD`, so the Claude library can't help. On pandiero, tumba and
+<<<<<<< Updated upstream
 qinto, `bash ./install-tools.sh` also installs `muse-ipv4`. It requires
 `python3`.
+=======
+quinto, `bash ./install-tools.sh` instead installs `muse-ipv4`, whether or not
+Muse is installed yet. It requires `python3`.
+>>>>>>> Stashed changes
 
 The launcher starts a small proxy on an ephemeral `127.0.0.1` port, sets
 `HTTPS_PROXY` and `https_proxy` to it, and adds `localhost`, `127.0.0.1` and

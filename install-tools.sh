@@ -33,7 +33,7 @@ CONFIGS_REPO=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 # These machines already use IPv4 for Codex; apply the same policy to Claude
 # and Muse.
 ai_ipv4=no
-case ${HOSTNAME%%.*} in pandiero | tumba | qinto) ai_ipv4=yes ;; esac
+case ${HOSTNAME%%.*} in pandiero | tumba | quinto) ai_ipv4=yes ;; esac
 
 BIN=$HOME/.local/bin
 DATA=${XDG_DATA_HOME:-$HOME/.local/share}

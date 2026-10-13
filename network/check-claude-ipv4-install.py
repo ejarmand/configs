@@ -83,7 +83,7 @@ esac
         (fixture / ".bashrc.d/05-machines.sh").write_text(machine)
         env = {"PATH": str(commands) + ":" + os.defpath, "HOME": str(home), "LANG": "C",
                "HOSTNAME": {"unaffected": "other-host", "default": "pandiero",
-                            "custom": "qinto", "storage": "tumba"}[mode]}
+                            "custom": "quinto", "storage": "tumba"}[mode]}
         data = home / ".local/share"
         if mode == "custom":
             data = case / "custom-data"
