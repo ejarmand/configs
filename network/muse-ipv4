@@ -12,30 +12,39 @@ proxy=$(dirname -- "$(readlink -f -- "$0")")/muse-ipv4-proxy.py
     echo "Missing $wrapper or $proxy. Install Muse, then run install-tools.sh." >&2
     exit 1
 }
-# The proxy prints its port, then exits when its stdin closes. Only this
-# launcher holds that pipe, so the proxy can't outlive it, even after SIGKILL.
+# The proxy prints its port. Only this launcher holds the proxy's stdin, so it
+# sees end of file when the launcher exits, even after SIGKILL. It then serves
+# Muse's background self-update until idle, for at most a few minutes.
 coproc PROXY { exec python3 -I "$proxy"; }
-proxy_pid=$PROXY_PID proxy_out=${PROXY[0]} proxy_in=${PROXY[1]}
-if ! read -r port <&"$proxy_out" || [[ ! $port =~ ^[0-9]+$ ]]; then
+proxy_out=${PROXY[0]} proxy_in=${PROXY[1]}
+if ! read -t 10 -r port <&"$proxy_out" || [[ ! $port =~ ^[0-9]+$ ]]; then
     echo "The IPv4 proxy for Muse did not start: $proxy" >&2
     exit 1
 fi
 exec {proxy_out}<&-
+# This replaces any existing proxy rather than chaining to it.
 export HTTPS_PROXY=http://127.0.0.1:$port https_proxy=http://127.0.0.1:$port
-NO_PROXY=${NO_PROXY-${no_proxy-}} no_proxy=${no_proxy-${NO_PROXY-}}
+# An empty value counts as unset, so it can't hide the other spelling's list.
+NO_PROXY=${NO_PROXY:-${no_proxy-}} no_proxy=${no_proxy:-$NO_PROXY}
 export NO_PROXY=${NO_PROXY:+$NO_PROXY,}localhost,127.0.0.1,::1
 export no_proxy=${no_proxy:+$no_proxy,}localhost,127.0.0.1,::1
 
-# Run Muse as a child so the proxy stops when it exits. Without job control,
-# Bash starts background commands with stdin from /dev/null and SIGINT and
-# SIGQUIT ignored; restore both so the terminal behaves as with plain muse.
+# Run Muse as a child, so the proxy's pipe stays open while Muse runs. Without
+# job control, Bash starts background commands with stdin from /dev/null and
+# SIGINT and SIGQUIT ignored; restore both so it behaves as plain muse.
 ( trap - INT QUIT; exec "$wrapper" "$@" ) <&0 {proxy_in}>&- &
 muse_pid=$!
-# Pass on termination. Ctrl+C already reaches Muse from the terminal, so the
-# launcher only waits for Muse to decide whether to exit.
 trap 'kill -TERM "$muse_pid" 2>/dev/null' TERM
 trap 'kill -HUP "$muse_pid" 2>/dev/null' HUP
-trap : INT QUIT
+if [[ -t 0 ]]; then
+    # Ctrl+C already reaches Muse from the terminal, so only wait for Muse to
+    # decide whether to exit.
+    trap : INT QUIT
+else
+    # Under stdio pipes, as with T3's `muse serve`, signals arrive at this PID.
+    trap 'kill -INT "$muse_pid" 2>/dev/null' INT
+    trap 'kill -QUIT "$muse_pid" 2>/dev/null' QUIT
+fi
 set +e
 while :; do
     wait "$muse_pid"
@@ -43,6 +52,5 @@ while :; do
     # A trapped signal interrupts wait; keep waiting while Muse runs.
     kill -0 "$muse_pid" 2>/dev/null || break
 done
-exec {proxy_in}>&-
-wait "$proxy_pid" 2>/dev/null
+# Exiting closes the proxy's pipe. It lingers for Muse's updater on its own.
 exit "$status"

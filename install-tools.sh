@@ -361,14 +361,16 @@ install_claude() {
 # the IPv4 launcher is installed here, whether or not Muse is installed yet, so
 # a later Muse install picks it up. The launcher fails if Muse is missing.
 install_muse() {
-  [ "$ai_ipv4" = yes ] || { echo "Muse Code updates itself; nothing to install"; return 0; }
+  # The launcher relies on Bash 4's coproc and GNU readlink.
+  [ "$os" = linux ] && [ "$ai_ipv4" = yes ] || { echo "Muse Code updates itself; nothing to install"; return 0; }
+  # Start the repo's proxy once, before replacing a working copy. It reports
+  # its port and, with no grace period, exits at end of input.
+  port=$(MUSE_IPV4_PROXY_GRACE=0 python3 -I "$CONFIGS_REPO/network/muse-ipv4-proxy.py" < /dev/null) || port=
+  case $port in '' | *[!0-9]*) fail "The Muse IPv4 proxy needs a working python3" ;; esac
   dest=$DATA/configs/muse-ipv4
   mkdir -p "$dest"
   install -m 644 "$CONFIGS_REPO/network/muse-ipv4-proxy.py" "$dest/muse-ipv4-proxy.py"
   install -m 755 "$CONFIGS_REPO/network/muse-ipv4" "$dest/muse-ipv4"
-  # Start the proxy once: it reports its port and exits at end of input.
-  port=$(python3 -I "$dest/muse-ipv4-proxy.py" < /dev/null) || port=
-  case $port in '' | *[!0-9]*) fail "The Muse IPv4 proxy needs a working python3" ;; esac
   link "$dest/muse-ipv4" muse-ipv4
   echo "Installed $BIN/muse-ipv4"
 }

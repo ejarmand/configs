@@ -247,12 +247,22 @@ Muse is installed yet. It requires `python3`.
 
 The launcher starts a small proxy on an ephemeral `127.0.0.1` port, sets
 `HTTPS_PROXY` and `https_proxy` to it, and adds `localhost`, `127.0.0.1` and
-`::1` to `NO_PROXY` and `no_proxy`. The proxy accepts only `CONNECT` and dials
-upstream over IPv4 only, so IPv6-only services fail with `502`. Muse runs as a
-child of the launcher, which forwards `SIGTERM` and `SIGHUP`, leaves Ctrl+C to
-Muse, returns Muse's exit status, and stops the proxy when Muse exits. The
-proxy also exits by itself if the launcher dies. Both files live under
+`::1` to `NO_PROXY` and `no_proxy`. An existing `HTTPS_PROXY` is replaced, not
+chained. The proxy accepts only `CONNECT host:port HTTP/1.x` and dials
+upstream over IPv4 only, so IPv6-only services fail with `502`. It has no
+authentication, so any local user could use it while it runs; this assumes a
+single-user machine. Both files live under
 `${XDG_DATA_HOME:-~/.local/share}/configs/muse-ipv4`.
+
+Muse runs as a child of the launcher, which returns Muse's exit status. It
+forwards `SIGTERM` and `SIGHUP` to Muse. On a terminal, Ctrl+C reaches Muse
+directly and the launcher keeps waiting; under stdio pipes, as with T3, the
+launcher also forwards `SIGINT` and `SIGQUIT`. When Muse exits, the launcher
+returns without waiting for the proxy. Muse's wrapper may have started a
+background self-update, as it can even for `muse --version`, so the proxy
+keeps serving until it has had no tunnels for 10 seconds, and for at most 10
+minutes. That also applies if the launcher is killed. A tunnel whose one side
+has closed is dropped after 30 seconds of quiet.
 
 When Muse and the launcher are both installed, `15-tools.sh` routes Bash's
 `muse` command through the launcher. Open a new shell after setup. T3 runs
@@ -263,7 +273,7 @@ fails with a message.
 
 Unlike the Claude library, the proxy settings reach commands Muse launches, so
 their HTTPS clients also go through the IPv4 proxy. Anything still running
-after Muse exits loses the proxy, and its HTTPS requests then fail.
+after the proxy stops loses it, and its HTTPS requests then fail.
 
 To disable it until the next tool installation, remove `~/.local/bin/muse-ipv4`,
 open a new shell, and point GUI launchers back at `~/.local/bin/muse`.
