@@ -30,7 +30,8 @@ CONFIGS_REPO=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 # shellcheck source=.bashrc.d/05-machines.sh
 . "$CONFIGS_REPO/.bashrc.d/05-machines.sh" || exit 1
 
-# These machines already use IPv4 for Codex; apply the same policy to Claude.
+# These machines already use IPv4 for Codex; apply the same policy to Claude
+# and Muse.
 ai_ipv4=no
 case ${HOSTNAME%%.*} in pandiero | tumba | qinto) ai_ipv4=yes ;; esac
 
@@ -356,6 +357,24 @@ install_claude() {
   "$BIN/claude-ipv4" --version
 }
 
+# Muse Code's own installer owns ~/.local/bin/muse, which updates itself. Only
+# the IPv4 launcher is installed here, whether or not Muse is installed yet, so
+# a later Muse install picks it up. The launcher fails if Muse is missing.
+install_muse() {
+  # The launcher relies on Bash 4's coproc and GNU readlink.
+  [ "$os" = linux ] && [ "$ai_ipv4" = yes ] || { echo "Muse Code updates itself; nothing to install"; return 0; }
+  # Start the repo's proxy once, before replacing a working copy. It reports
+  # its port and, with no grace period, exits at end of input.
+  port=$(MUSE_IPV4_PROXY_GRACE=0 python3 -I "$CONFIGS_REPO/network/muse-ipv4-proxy.py" < /dev/null) || port=
+  case $port in '' | *[!0-9]*) fail "The Muse IPv4 proxy needs a working python3" ;; esac
+  dest=$DATA/configs/muse-ipv4
+  mkdir -p "$dest"
+  install -m 644 "$CONFIGS_REPO/network/muse-ipv4-proxy.py" "$dest/muse-ipv4-proxy.py"
+  install -m 755 "$CONFIGS_REPO/network/muse-ipv4" "$dest/muse-ipv4"
+  link "$dest/muse-ipv4" muse-ipv4
+  echo "Installed $BIN/muse-ipv4"
+}
+
 install_cursor() {
   # The official installer pins its version in the script and links
   # ~/.local/bin/agent and cursor-agent, deleting whatever was there.
@@ -425,7 +444,7 @@ if [ "${1-}" = --codex-sandbox ]; then
 fi
 
 failed=
-for tool in neovim codex opencode starship pixi uv node rg gh claude cursor; do
+for tool in neovim codex opencode starship pixi uv node rg gh claude muse cursor; do
   echo
   echo "== $tool"
   # Each tool runs in its own subshell so one failure doesn't stop the rest.

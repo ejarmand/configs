@@ -13,10 +13,11 @@ Use the same command for updates. It loads the existing machine settings,
 prepares storage and applies any outstanding layout migration, installs or
 updates tools, pulls the latest skills, then links configs and skills. It stops
 on a failed phase and reports it; fix the error and rerun. Tool-specific setup,
-including Codex's sudo prompt and the Claude IPv4 helper, stays in `install-tools.sh`.
+including Codex's sudo prompt and the Claude and Muse IPv4 helpers, stays in
+`install-tools.sh`.
 
 Setup needs Git and the installer's download/build commands (`curl`, archive
-and checksum tools, and `cc` for the Claude IPv4 hosts). It does not provision
+and checksum tools, and `cc` and `python3` for the IPv4 hosts). It does not provision
 an operating system or distribute credentials. Keep the clone in place while
 configs link to it. Open a new shell after setup. Existing login profiles
 are preserved; they must source `.bashrc` to load it in login shells.
@@ -235,6 +236,51 @@ executable path in GUI launchers.
 Run `python3 network/check-claude-ipv4-install.py` for offline installation
 checks. The socket check is `network/check-ai-ipv4.py`, run with the installed
 `ai-ipv4.so` in `LD_PRELOAD` and `AI_IPV4_PREVIOUS_PRELOAD` empty.
+
+### Muse IPv4 workaround
+
+Muse Code's installer owns `~/.local/bin/muse`, a wrapper that updates itself
+and runs a statically linked binary. That binary has no IP family setting and
+ignores `LD_PRELOAD`, so the Claude library can't help. On pandiero, tumba and
+qinto, `bash ./install-tools.sh` instead installs `muse-ipv4`, whether or not
+Muse is installed yet. It requires `python3`.
+
+The launcher starts a small proxy on an ephemeral `127.0.0.1` port, sets
+`HTTPS_PROXY` and `https_proxy` to it, and adds `localhost`, `127.0.0.1` and
+`::1` to `NO_PROXY` and `no_proxy`. An existing `HTTPS_PROXY` is replaced, not
+chained. The proxy accepts only `CONNECT host:port HTTP/1.x` and dials
+upstream over IPv4 only, so IPv6-only services fail with `502`. It has no
+authentication, so any local user could use it while it runs; this assumes a
+single-user machine. Both files live under
+`${XDG_DATA_HOME:-~/.local/share}/configs/muse-ipv4`.
+
+Muse runs as a child of the launcher, which returns Muse's exit status. It
+forwards `SIGTERM` and `SIGHUP` to Muse. On a terminal, Ctrl+C reaches Muse
+directly and the launcher keeps waiting; under stdio pipes, as with T3, the
+launcher also forwards `SIGINT` and `SIGQUIT`. When Muse exits, the launcher
+returns without waiting for the proxy. Muse's wrapper may have started a
+background self-update, as it can even for `muse --version`, so the proxy
+keeps serving until it has had no tunnels for 10 seconds, and for at most 10
+minutes. That also applies if the launcher is killed. A tunnel whose one side
+has closed is dropped after 30 seconds of quiet.
+
+When Muse and the launcher are both installed, `15-tools.sh` routes Bash's
+`muse` command through the launcher. Open a new shell after setup. T3 runs
+`muse serve` and doesn't read the Bash function: set the Muse Code provider's
+binary path to the absolute `~/.local/bin/muse-ipv4` and restart the provider.
+Do the same in other GUI launchers. Running `muse-ipv4` without Muse installed
+fails with a message.
+
+Unlike the Claude library, the proxy settings reach commands Muse launches, so
+their HTTPS clients also go through the IPv4 proxy. Anything still running
+after the proxy stops loses it, and its HTTPS requests then fail.
+
+To disable it until the next tool installation, remove `~/.local/bin/muse-ipv4`,
+open a new shell, and point GUI launchers back at `~/.local/bin/muse`.
+
+Run `python3 network/check-muse-ipv4.py` to check the proxy and launcher
+against a stub `muse`, offline. `network/check-claude-ipv4-install.py` also
+covers installing it.
 
 ## Offline checks
 
