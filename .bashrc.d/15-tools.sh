@@ -93,7 +93,7 @@ fi
 if [[ -x $HOME/.local/bin/claude-ipv4 ]]; then
     claude() { "$HOME/.local/bin/claude-ipv4" "$@"; }
 fi
-# Muse installs itself; install-tools.sh adds the launcher on the same machines.
+# install-tools.sh installs Muse and, on the same machines, the IPv4 launcher.
 if [[ -x $HOME/.local/bin/muse-ipv4 && -x $HOME/.local/bin/muse ]]; then
     muse() { "$HOME/.local/bin/muse-ipv4" "$@"; }
 fi

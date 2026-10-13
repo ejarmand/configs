@@ -146,7 +146,8 @@ bash ./migrations/luogeng.sh            # or yixing.sh
 
 `install-tools.sh` installs Neovim, Codex, opencode, Starship, Pixi, uv, nvm
 with Node LTS, Claude Code and the Cursor CLI, or updates them to their latest
-release. It installs `rg` and `gh` only when they aren't already on PATH, and
+release. It installs Muse Code's launcher when it's missing; the launcher
+updates itself and Muse after that. It installs `rg` and `gh` only when they aren't already on PATH, and
 keeps its own copies updated after that.
 
 ```bash
@@ -241,11 +242,11 @@ checks. The socket check is `network/check-ai-ipv4.py`, run with the installed
 
 ### Muse IPv4 workaround
 
-Muse Code's installer owns `~/.local/bin/muse`, a wrapper that updates itself
-and runs a statically linked binary. That binary has no IP family setting and
+`~/.local/bin/muse` is Muse Code's launcher, a wrapper that updates itself and
+runs a statically linked binary. That binary has no IP family setting and
 ignores `LD_PRELOAD`, so the Claude library can't help. On pandiero, tumba and
-qinto, `bash ./install-tools.sh` instead installs `muse-ipv4`, whether or not
-Muse is installed yet. It requires `python3`.
+qinto, `bash ./install-tools.sh` also installs `muse-ipv4`. It requires
+`python3`.
 
 The launcher starts a small proxy on an ephemeral `127.0.0.1` port, sets
 `HTTPS_PROXY` and `https_proxy` to it, and adds `localhost`, `127.0.0.1` and

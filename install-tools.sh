@@ -369,12 +369,23 @@ install_claude() {
   "$BIN/claude-ipv4" --version
 }
 
-# Muse Code's own installer owns ~/.local/bin/muse, which updates itself. Only
-# the IPv4 launcher is installed here, whether or not Muse is installed yet, so
-# a later Muse install picks it up. The launcher fails if Muse is missing.
+# ~/.local/bin/muse is Muse Code's launcher, which updates itself and the binary
+# next to it. Install it only when it's missing; its install mode downloads the
+# binary and may print a sign-in link the first time.
 install_muse() {
-  # The launcher relies on Bash 4's coproc and GNU readlink.
-  [ "$os" = linux ] && [ "$ai_ipv4" = yes ] || { echo "Muse Code updates itself; nothing to install"; return 0; }
+  if [ -x "$BIN/muse" ]; then
+    echo "Muse Code is installed and updates itself"
+  else
+    curl -fsSL --proto '=https' -o "$TMP/muse" https://api.meta.ai/muse-launcher.sh
+    bash -n "$TMP/muse" || fail "The Muse Code launcher download is not a valid script"
+    set_aside muse
+    install -m 755 "$TMP/muse" "$BIN/muse"
+    MUSE_LAUNCHER_INSTALL=1 "$BIN/muse"
+    echo "Installed $BIN/muse"
+  fi
+
+  # The IPv4 launcher relies on Bash 4's coproc and GNU readlink.
+  [ "$os" = linux ] && [ "$ai_ipv4" = yes ] || return 0
   # Start the repo's proxy once, before replacing a working copy. It reports
   # its port and, with no grace period, exits at end of input.
   port=$(MUSE_IPV4_PROXY_GRACE=0 python3 -I "$CONFIGS_REPO/network/muse-ipv4-proxy.py" < /dev/null) || port=
