@@ -160,7 +160,9 @@ upstream's. nvm goes in `$NVM_DIR`, and Claude Code and Cursor wherever their
 own installers put them. Cursor's installer always writes to
 `~/.local/share/cursor-agent`, so when the data directory is elsewhere, that path
 is linked into it first. opencode is v2, which comes from npm rather than GitHub
-releases.
+releases. `opencode upgrade` doesn't recognize that install, so rerun the script
+to update it; the script also restarts opencode's background server when it's
+running an older version.
 
 The script loads `.bashrc.d/05-machines.sh` itself before installing anything,
 so the storage-drive data directory and `NVM_DIR` on luogeng and yixing apply
