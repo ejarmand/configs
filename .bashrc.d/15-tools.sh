@@ -93,6 +93,10 @@ fi
 if [[ -x $HOME/.local/bin/claude-ipv4 ]]; then
     claude() { "$HOME/.local/bin/claude-ipv4" "$@"; }
 fi
+# Muse installs itself; install-tools.sh adds the launcher on the same machines.
+if [[ -x $HOME/.local/bin/muse-ipv4 && -x $HOME/.local/bin/muse ]]; then
+    muse() { "$HOME/.local/bin/muse-ipv4" "$@"; }
+fi
 
 # Resolve aliases and the prompt against the shared binaries, after tool hooks.
 bashrc_prepend_path "$HOME/.local/bin"

@@ -1,4 +1,4 @@
-"""Exercise automatic Claude IPv4 setup through the normal installer, offline."""
+"""Exercise automatic Claude and Muse IPv4 setup through the normal installer, offline."""
 import os
 from pathlib import Path
 import shutil
@@ -92,6 +92,12 @@ esac
             data = storage / ".local/share"
         if mode != "default":
             (bin_dir / "claude").symlink_to(native)
+        # Muse installs itself, so one affected host doesn't have it yet.
+        muse = mode != "custom"
+        if muse:
+            (bin_dir / "muse").write_text(
+                '#!/bin/sh\ncase $HTTPS_PROXY in http://127.0.0.1:*) printf "%s\\n" "$*" ;; *) exit 1 ;; esac\n')
+            (bin_dir / "muse").chmod(0o755)
         startup = home / ".bashrc"
         startup.write_text("# local shell settings\n")
         (home / ".bashrc.d").mkdir()
@@ -108,27 +114,37 @@ esac
             result = run("bash", str(fixture / "install-tools.sh"), env=env, ok=False)
             failures = next(line for line in result.stderr.splitlines() if line.startswith("Failed:"))
             assert "claude" not in failures.split(), result.stdout + result.stderr
+            assert "muse" not in failures.split(), result.stdout + result.stderr
         assert startup.read_text() == "# local shell settings\n"
         assert os.readlink(bin_dir / "claude") == str(native)
         assert config.read_text() == 'ip_family = "ipv6"\n'
         assert (bin_dir / "codex").exists() == (mode == "storage")
         if mode == "unaffected":
             assert not (bin_dir / "claude-ipv4").exists()
+            assert not (bin_dir / "muse-ipv4").exists()
             print("PASS unaffected host: no IPv4 workaround installed")
             continue
         assert (data / "configs/claude-ipv4/ai-ipv4.so").exists()
+        assert (data / "configs/muse-ipv4/muse-ipv4-proxy.py").exists()
         launcher = str(bin_dir / "claude-ipv4")
         # Direct GUI launch, with no XDG settings, then a loaded machine shell.
         gui_env = {key: value for key, value in env.items() if key != "XDG_DATA_HOME"}
         assert run(launcher, "argument with spaces", env=gui_env).stdout == "argument with spaces\n"
+        if muse:
+            assert run(str(bin_dir / "muse-ipv4"), "argument with spaces",
+                       env=gui_env).stdout == "argument with spaces\n"
+        else:
+            assert "Missing" in run(str(bin_dir / "muse-ipv4"), env=gui_env, ok=False).stderr
         run("bash", str(fixture / "link.sh"), env=env)
         assert local.read_text() == "export LOCAL_SNIPPET=preserved\n"
         result = run("bash", "--noprofile", "--norc", "-c",
                      '. "$HOME/.bashrc"; test "$LOCAL_SNIPPET" = preserved || exit 1; '
-                     'if declare -F codex >/dev/null; then exit 1; fi; claude "$1"',
+                     'if declare -F codex >/dev/null; then exit 1; fi; claude "$1"; '
+                     'if declare -F muse >/dev/null; then muse "$1"; fi',
                      "check", "argument with spaces", env=env)
-        assert result.stdout == "argument with spaces\n", result.stdout
-        print(f"PASS {mode}: automatic setup, rerun, GUI launch, shared Bash, Codex preserved")
+        assert result.stdout == "argument with spaces\n" * (2 if muse else 1), result.stdout
+        print(f"PASS {mode}: automatic setup, rerun, GUI launch, shared Bash, Codex preserved"
+              f"{', Muse proxied' if muse else ', Muse not installed'}")
 
     # A native updater switching to a script must fail visibly, not skip preload.
     (bin_dir / "claude").unlink()

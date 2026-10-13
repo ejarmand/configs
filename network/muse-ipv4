@@ -1,0 +1,48 @@
+#!/bin/bash
+# Muse's self-updating wrapper keeps owning ~/.local/bin/muse and its updates.
+# Its native binary is static, so LD_PRELOAD can't reach it, and it has no IP
+# family setting. It does honor HTTPS_PROXY, so route it through a local proxy
+# that only dials IPv4.
+set -e
+wrapper=$HOME/.local/bin/muse
+# Installed beside the proxy and linked into ~/.local/bin. GUI processes may
+# not have loaded the shell's XDG settings, so resolve the installed location.
+proxy=$(dirname -- "$(readlink -f -- "$0")")/muse-ipv4-proxy.py
+[[ -x $wrapper && -r $proxy ]] || {
+    echo "Missing $wrapper or $proxy. Install Muse, then run install-tools.sh." >&2
+    exit 1
+}
+# The proxy prints its port, then exits when its stdin closes. Only this
+# launcher holds that pipe, so the proxy can't outlive it, even after SIGKILL.
+coproc PROXY { exec python3 -I "$proxy"; }
+proxy_pid=$PROXY_PID proxy_out=${PROXY[0]} proxy_in=${PROXY[1]}
+if ! read -r port <&"$proxy_out" || [[ ! $port =~ ^[0-9]+$ ]]; then
+    echo "The IPv4 proxy for Muse did not start: $proxy" >&2
+    exit 1
+fi
+exec {proxy_out}<&-
+export HTTPS_PROXY=http://127.0.0.1:$port https_proxy=http://127.0.0.1:$port
+NO_PROXY=${NO_PROXY-${no_proxy-}} no_proxy=${no_proxy-${NO_PROXY-}}
+export NO_PROXY=${NO_PROXY:+$NO_PROXY,}localhost,127.0.0.1,::1
+export no_proxy=${no_proxy:+$no_proxy,}localhost,127.0.0.1,::1
+
+# Run Muse as a child so the proxy stops when it exits. Without job control,
+# Bash starts background commands with stdin from /dev/null and SIGINT and
+# SIGQUIT ignored; restore both so the terminal behaves as with plain muse.
+( trap - INT QUIT; exec "$wrapper" "$@" ) <&0 {proxy_in}>&- &
+muse_pid=$!
+# Pass on termination. Ctrl+C already reaches Muse from the terminal, so the
+# launcher only waits for Muse to decide whether to exit.
+trap 'kill -TERM "$muse_pid" 2>/dev/null' TERM
+trap 'kill -HUP "$muse_pid" 2>/dev/null' HUP
+trap : INT QUIT
+set +e
+while :; do
+    wait "$muse_pid"
+    status=$?
+    # A trapped signal interrupts wait; keep waiting while Muse runs.
+    kill -0 "$muse_pid" 2>/dev/null || break
+done
+exec {proxy_in}>&-
+wait "$proxy_pid" 2>/dev/null
+exit "$status"
