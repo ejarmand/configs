@@ -396,9 +396,9 @@ config["binaryPath"] = launcher
 os.makedirs(os.path.dirname(path), exist_ok=True)
 # Writing over it, rather than moving a new file in, keeps the file's
 # permissions and any link to it.
+text = json.dumps(settings, indent=2) + "\n"
 with open(path, "w") as f:
-    json.dump(settings, f, indent=2)
-    f.write("\n")
+    f.write(text)
 print(f"Set T3's {instance_id} binary path to {launcher}")
 PY
 }
