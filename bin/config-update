@@ -1,0 +1,20 @@
+#!/bin/bash
+# Pull this checkout, then run its setup. Never reset or stash local work.
+set -e
+# Braces make Bash parse the whole script before the pull can replace it.
+{
+[[ $# == 0 ]] || { echo "Usage: $0" >&2; exit 2; }
+# link.sh puts a symlink in ~/.local/bin; follow it without GNU readlink -f.
+self=${BASH_SOURCE[0]}
+while [[ -L $self ]]; do
+    target=$(readlink "$self")
+    [[ $target == /* ]] || target=$(dirname -- "$self")/$target
+    self=$target
+done
+repo=$(cd -- "$(dirname -- "$self")/.." && pwd)
+git -C "$repo" pull --ff-only || {
+    echo "Could not fast-forward $repo. Resolve local changes or diverged history, then rerun config-update." >&2
+    exit 1
+}
+exec bash "$repo/setup.sh"
+}

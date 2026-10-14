@@ -9,7 +9,17 @@ From a persistent clone on Linux x86_64 or macOS arm64, run:
 bash ./setup.sh
 ```
 
-Use the same command for updates. It loads the existing machine settings,
+After the first setup, update from any directory with:
+
+```bash
+config-update
+```
+
+It runs `git pull --ff-only` in this clone, then the pulled `setup.sh`. Local
+commits, diverged history, or uncommitted changes that block the pull stop it
+before setup, leaving the clone as it was.
+
+`setup.sh` can also be rerun directly. It loads the existing machine settings,
 prepares storage and applies any outstanding layout migration, installs or
 updates tools, pulls the latest skills, then links configs and skills. It stops
 on a failed phase and reports it; fix the error and rerun. Tool-specific setup,
@@ -22,9 +32,10 @@ an operating system or distribute credentials. Keep the clone in place while
 configs link to it. Open a new shell after setup. Existing login profiles
 are preserved; they must source `.bashrc` to load it in login shells.
 
-`link.sh` owns Bash, Neovim, and Starship configuration placement. On Linux
-with an installed Hyprkarl checkout (`$HYPRKARL_PATH`, defaulting to
-`~/.local/share/hyprkarl`), it also links the desktop overrides listed below.
+`link.sh` owns Bash, Neovim, and Starship configuration placement, and links
+`config-update` into `~/.local/bin`. On Linux with an installed Hyprkarl
+checkout (`$HYPRKARL_PATH`, defaulting to `~/.local/share/hyprkarl`), it also
+links the desktop overrides listed below.
 Those overrides are skipped on headless machines and macOS.
 
 Conflicting managed files are moved into

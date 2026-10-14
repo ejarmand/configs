@@ -28,16 +28,23 @@ class SetupChecks(unittest.TestCase):
         (skill / "bin/example-tool").write_text("#!/bin/sh\necho example\n")
         (skill / "bin/example-tool").chmod(0o755)
         subprocess.run(["git", "init", "-q", "-b", "main", str(self.upstream)], check=True)
-        self.commit_skills(self.upstream)
+        self.commit(self.upstream)
         # Exercise real clone/pull without GitHub access or the user's checkout.
         self.env.update(GIT_CONFIG_COUNT="1",
                         GIT_CONFIG_KEY_0=f"url.{self.upstream}.insteadOf",
                         GIT_CONFIG_VALUE_0="https://github.com/ejarmand/skills.git")
 
-    def commit_skills(self, path):
+    def commit(self, path):
         subprocess.run(["git", "-C", str(path), "add", "."], check=True)
         subprocess.run(["git", "-C", str(path), "-c", "user.name=Setup test",
                         "-c", "user.email=setup@example.invalid", "commit", "-qm", "Fixture"], check=True)
+
+    def clone_configs(self):
+        # The test repo copy becomes the upstream that config-update pulls from.
+        self.commit(self.repo)
+        clone = self.root / "configs clone"
+        subprocess.run(["git", "clone", "-q", str(self.repo), str(clone)], check=True)
+        return clone
 
     def run_script(self, name, *args, ok=True):
         result = subprocess.run(["bash", str(self.repo / name), *args], env=self.env,
@@ -96,7 +103,7 @@ echo called >> "$HOME/installer-calls"
         new.mkdir()
         (new / "SKILL.md").write_text("new skill")
         (self.upstream / "skills/example/SKILL.md").write_text("updated skill")
-        self.commit_skills(self.upstream)
+        self.commit(self.upstream)
         self.run_script("setup.sh")
         self.assertEqual((skills / "example/SKILL.md").read_text(), "updated skill")
         self.assertEqual((skills / "added/SKILL.md").read_text(), "new skill")
@@ -109,9 +116,9 @@ echo called >> "$HOME/installer-calls"
         self.env["SKILLS_REPO"] = str(checkout)
         self.run_script("setup.sh")
         (checkout / "local.txt").write_text("local work")
-        self.commit_skills(checkout)
+        self.commit(checkout)
         (self.upstream / "remote.txt").write_text("remote work")
-        self.commit_skills(self.upstream)
+        self.commit(self.upstream)
         (self.home / ".bashrc").unlink()
         result = self.run_script("setup.sh", ok=False)
         self.assertIn("skills update", result.stderr)
@@ -120,6 +127,68 @@ echo called >> "$HOME/installer-calls"
         self.assertFalse((checkout / "remote.txt").exists())
         self.assertFalse((self.home / ".bashrc").exists())
         self.assertFalse((self.home / "projects/skills").exists())
+
+    def test_config_update_fast_forwards_then_runs_the_pulled_setup(self):
+        (self.repo / "install-tools.sh").write_text("exit 0\n")
+        clone = self.clone_configs()
+        self.run_script(clone / "setup.sh")
+        command = self.home / ".local/bin/config-update"
+        self.assertEqual(command.resolve(), clone / "bin/config-update")
+        (self.repo / "install-tools.sh").write_text('echo pulled >> "$HOME/installer-calls"\n')
+        (self.repo / ".bashrc.d/50-pulled.sh").write_text("# pulled\n")
+        # The pull rewrites the running command; shift its contents to prove that's safe.
+        script = self.repo / "bin/config-update"
+        script.write_text(script.read_text().replace("set -e\n", "set -e\n# Pulled.\n", 1))
+        self.commit(self.repo)
+        result = subprocess.run([str(command)], cwd=self.root, env=self.env,
+                                text=True, capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("Setup complete", result.stdout)
+        self.assertEqual((self.home / "installer-calls").read_text(), "pulled\n")
+        self.assertEqual((self.home / ".bashrc.d/50-pulled.sh").resolve(),
+                         clone / ".bashrc.d/50-pulled.sh")
+        self.assertIn("# Pulled.", (clone / "bin/config-update").read_text())
+
+    def test_config_update_stops_before_setup_when_pull_cannot_fast_forward(self):
+        (self.repo / "install-tools.sh").write_text("exit 0\n")
+        clone = self.clone_configs()
+        command = clone / "bin/config-update"
+        self.assertEqual(self.run_script(command, "extra", ok=False).returncode, 2)
+        (self.repo / "install-tools.sh").write_text('touch "$HOME/installer-called"\n')
+        (self.repo / "remote.txt").write_text("remote work")
+        self.commit(self.repo)
+        local = "# local work\nexit 0\n"
+        (clone / "install-tools.sh").write_text(local)
+
+        def assert_stopped():
+            result = self.run_script(command, ok=False)
+            self.assertIn("Could not fast-forward", result.stderr)
+            self.assertNotIn("Setup complete", result.stdout)
+            self.assertEqual((clone / "install-tools.sh").read_text(), local)
+            self.assertFalse((clone / "remote.txt").exists())
+            self.assertFalse((self.home / "installer-called").exists())
+            self.assertFalse((self.home / ".bashrc").exists())
+
+        def head():
+            return subprocess.run(["git", "-C", str(clone), "rev-parse", "HEAD"],
+                                  text=True, capture_output=True, check=True).stdout
+
+        assert_stopped()  # Uncommitted changes block the pull.
+        self.commit(clone)
+        local_head = head()
+        assert_stopped()  # Diverged history.
+        self.assertEqual(head(), local_head)
+
+    def test_linker_puts_config_update_on_path_with_backup(self):
+        command = self.home / ".local/bin/config-update"
+        command.parent.mkdir(parents=True)
+        command.write_text("old command\n")
+        self.run_script("link.sh")
+        self.assertEqual(command.resolve(), self.repo / "bin/config-update")
+        backups = list((self.home / ".local/state/configs/config-backups").glob(
+            "*/home/.local/bin/config-update"))
+        self.assertEqual(len(backups), 1)
+        self.assertEqual(backups[0].read_text(), "old command\n")
 
     def test_linker_preserves_local_files_and_backs_up_replacements_once(self):
         snippets = self.home / ".bashrc.d"
