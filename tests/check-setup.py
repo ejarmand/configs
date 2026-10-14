@@ -148,6 +148,16 @@ echo called >> "$HOME/installer-calls"
         self.assertEqual((self.home / ".bashrc.d/50-pulled.sh").resolve(),
                          clone / ".bashrc.d/50-pulled.sh")
         self.assertIn("# Pulled.", (clone / "bin/config-update").read_text())
+        # A clone that is only ahead of upstream still runs setup on its commits.
+        (clone / "install-tools.sh").write_text('echo local >> "$HOME/installer-calls"\n')
+        self.commit(clone)
+        head = subprocess.run(["git", "-C", str(clone), "rev-parse", "HEAD"],
+                              text=True, capture_output=True, check=True).stdout
+        result = self.run_script(command)
+        self.assertIn("Setup complete", result.stdout)
+        self.assertEqual((self.home / "installer-calls").read_text(), "pulled\nlocal\n")
+        self.assertEqual(subprocess.run(["git", "-C", str(clone), "rev-parse", "HEAD"],
+                                        text=True, capture_output=True, check=True).stdout, head)
 
     def test_config_update_stops_before_setup_when_pull_cannot_fast_forward(self):
         (self.repo / "install-tools.sh").write_text("exit 0\n")
@@ -169,7 +179,7 @@ echo called >> "$HOME/installer-calls"
 
         def assert_stopped():
             result = self.run_script(command, ok=False)
-            self.assertIn("Could not fast-forward", result.stderr)
+            self.assertIn("The pull failed", result.stderr)
             self.assertNotIn("Setup complete", result.stdout)
             self.assertEqual((clone / "install-tools.sh").read_text(), local)
             self.assertFalse((clone / "remote.txt").exists())
@@ -193,7 +203,9 @@ echo called >> "$HOME/installer-calls"
         command = self.home / ".local/bin/config-update"
         command.parent.mkdir(parents=True)
         command.write_text("old command\n")
+        (self.repo / "bin/notes.txt").write_text("not a command\n")
         self.run_script("link.sh")
+        self.assertFalse((command.parent / "notes.txt").exists())
         self.assertEqual(command.resolve(), self.repo / "bin/config-update")
         backups = list((self.home / ".local/state/configs/config-backups").glob(
             "*/home/.local/bin/config-update"))

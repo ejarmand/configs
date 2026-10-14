@@ -68,6 +68,7 @@ git -C "$repo" ls-files -z -- nvim | while IFS= read -r -d '' relative; do
 done
 link_config "$repo/starship.toml" "$config_home/starship.toml" config/starship.toml
 for source in "$repo"/bin/*; do
+    [[ -f $source && -x $source ]] || continue
     relative=.local/bin/${source##*/}
     link_config "$source" "$HOME/$relative" "home/$relative"
 done
