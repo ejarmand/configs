@@ -367,6 +367,40 @@ install_claude() {
   link "$dest/claude-ipv4" claude-ipv4
   echo "Installed $BIN/claude-ipv4"
   "$BIN/claude-ipv4" --version
+  t3_binary_path claudeAgent claude "$BIN/claude-ipv4"
+}
+
+# T3 starts providers itself and doesn't read the Bash functions, so point its
+# Claude or Muse provider at the IPv4 launcher in ~/.t3/userdata/settings.json.
+# The server reloads that file when it changes. Only an unset or native binary
+# path is replaced; any other path is left alone.
+t3_binary_path() { # INSTANCE COMMAND LAUNCHER
+  python3 -I - "$HOME/.t3/userdata/settings.json" "$BIN" "$@" <<'PY'
+import json, os, sys
+path, bin_dir, instance_id, command, launcher = sys.argv[1:]
+try:
+    with open(path) as f:
+        settings = json.load(f)
+except FileNotFoundError:
+    settings = {}
+instance = settings.setdefault("providerInstances", {}).setdefault(
+    instance_id, {"driver": instance_id, "enabled": True})
+config = instance.setdefault("config", {})
+current = config.get("binaryPath", "")
+if current == launcher:
+    sys.exit()
+if current not in ("", command, os.path.join(bin_dir, command)):
+    print(f"Leaving T3's {instance_id} binary path {current} alone")
+    sys.exit()
+config["binaryPath"] = launcher
+os.makedirs(os.path.dirname(path), exist_ok=True)
+# Writing over it, rather than moving a new file in, keeps the file's
+# permissions and any link to it.
+with open(path, "w") as f:
+    json.dump(settings, f, indent=2)
+    f.write("\n")
+print(f"Set T3's {instance_id} binary path to {launcher}")
+PY
 }
 
 # ~/.local/bin/muse is Muse Code's launcher, which updates itself and the binary
@@ -396,6 +430,7 @@ install_muse() {
   install -m 755 "$CONFIGS_REPO/network/muse-ipv4" "$dest/muse-ipv4"
   link "$dest/muse-ipv4" muse-ipv4
   echo "Installed $BIN/muse-ipv4"
+  t3_binary_path muse muse "$BIN/muse-ipv4"
 }
 
 install_cursor() {
