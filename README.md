@@ -15,9 +15,10 @@ After the first setup, update from any directory with:
 config-update
 ```
 
-It runs `git pull --ff-only` in this clone, then the pulled `setup.sh`. Local
-commits, diverged history, or uncommitted changes that block the pull stop it
-before setup, leaving the clone as it was.
+It runs `git pull --ff-only` in this clone, then the pulled `setup.sh`. If the
+clone can't fast-forward, because its history diverged or uncommitted changes
+block the pull, it stops before setup and leaves the clone as it was. Local
+commits alone don't stop it; setup runs on the committed tree.
 
 `setup.sh` can also be rerun directly. It loads the existing machine settings,
 prepares storage and applies any outstanding layout migration, installs or

@@ -159,6 +159,13 @@ echo called >> "$HOME/installer-calls"
         self.commit(self.repo)
         local = "# local work\nexit 0\n"
         (clone / "install-tools.sh").write_text(local)
+        # A user's autostash and identity must not let the pull stash local edits.
+        config = {"merge.autoStash": "true", "rebase.autoStash": "true",
+                  "user.name": "Setup test", "user.email": "setup@example.invalid"}
+        for index, (key, value) in enumerate(config.items(), start=1):
+            self.env[f"GIT_CONFIG_KEY_{index}"] = key
+            self.env[f"GIT_CONFIG_VALUE_{index}"] = value
+        self.env["GIT_CONFIG_COUNT"] = str(len(config) + 1)
 
         def assert_stopped():
             result = self.run_script(command, ok=False)
@@ -168,6 +175,9 @@ echo called >> "$HOME/installer-calls"
             self.assertFalse((clone / "remote.txt").exists())
             self.assertFalse((self.home / "installer-called").exists())
             self.assertFalse((self.home / ".bashrc").exists())
+            stashes = subprocess.run(["git", "-C", str(clone), "stash", "list"],
+                                     text=True, capture_output=True, check=True).stdout
+            self.assertEqual(stashes, "")
 
         def head():
             return subprocess.run(["git", "-C", str(clone), "rev-parse", "HEAD"],

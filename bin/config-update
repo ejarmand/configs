@@ -12,7 +12,7 @@ while [[ -L $self ]]; do
     self=$target
 done
 repo=$(cd -- "$(dirname -- "$self")/.." && pwd)
-git -C "$repo" pull --ff-only || {
+git -C "$repo" pull --ff-only --no-autostash || {
     echo "Could not fast-forward $repo. Resolve local changes or diverged history, then rerun config-update." >&2
     exit 1
 }
