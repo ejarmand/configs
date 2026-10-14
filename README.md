@@ -222,9 +222,12 @@ a dynamically linked glibc binary. Other machines keep their normal networking.
 Codex continues to use its native `ip_family` setting.
 
 The existing `15-tools.sh` snippet routes Bash's `claude` command through the
-launcher when installed. Open a new shell after setup. For T3 or another GUI
-launcher, select the absolute `~/.local/bin/claude-ipv4` path and restart the
-provider. Native Claude updates retain ownership of `~/.local/bin/claude`.
+launcher when installed. Open a new shell after setup. T3 doesn't read the
+Bash function, so the script also sets T3's Claude provider binary path to the
+absolute `~/.local/bin/claude-ipv4` in `~/.t3/userdata/settings.json`, unless
+it's already set to something other than native Claude. T3 reloads that file
+itself. In another GUI launcher, select that path by hand. Native Claude
+updates retain ownership of `~/.local/bin/claude`.
 
 The launcher and library live together under
 `${XDG_DATA_HOME:-~/.local/share}/configs/claude-ipv4`, so GUI launches do not
@@ -234,7 +237,7 @@ commands Claude launches. IPv6-only services may be unreachable from Claude.
 
 To disable it until the next tool installation, remove
 `~/.local/bin/claude-ipv4`, open a new shell, and restore the native Claude
-executable path in GUI launchers.
+executable path in T3 and other GUI launchers.
 
 Run `python3 network/check-claude-ipv4-install.py` for offline installation
 checks. The socket check is `network/check-ai-ipv4.py`, run with the installed
@@ -245,13 +248,8 @@ checks. The socket check is `network/check-ai-ipv4.py`, run with the installed
 `~/.local/bin/muse` is Muse Code's launcher, a wrapper that updates itself and
 runs a statically linked binary. That binary has no IP family setting and
 ignores `LD_PRELOAD`, so the Claude library can't help. On pandiero, tumba and
-<<<<<<< Updated upstream
-qinto, `bash ./install-tools.sh` also installs `muse-ipv4`. It requires
+quinto, `bash ./install-tools.sh` also installs `muse-ipv4`. It requires
 `python3`.
-=======
-quinto, `bash ./install-tools.sh` instead installs `muse-ipv4`, whether or not
-Muse is installed yet. It requires `python3`.
->>>>>>> Stashed changes
 
 The launcher starts a small proxy on an ephemeral `127.0.0.1` port, sets
 `HTTPS_PROXY` and `https_proxy` to it, and adds `localhost`, `127.0.0.1` and
@@ -274,17 +272,18 @@ has closed is dropped after 30 seconds of quiet.
 
 When Muse and the launcher are both installed, `15-tools.sh` routes Bash's
 `muse` command through the launcher. Open a new shell after setup. T3 runs
-`muse serve` and doesn't read the Bash function: set the Muse Code provider's
-binary path to the absolute `~/.local/bin/muse-ipv4` and restart the provider.
-Do the same in other GUI launchers. Running `muse-ipv4` without Muse installed
-fails with a message.
+`muse serve` and doesn't read the Bash function, so the script also sets T3's
+Muse Code provider binary path to the absolute `~/.local/bin/muse-ipv4`, the
+same way as for Claude. Select that path by hand in other GUI launchers.
+Running `muse-ipv4` without Muse installed fails with a message.
 
 Unlike the Claude library, the proxy settings reach commands Muse launches, so
 their HTTPS clients also go through the IPv4 proxy. Anything still running
 after the proxy stops loses it, and its HTTPS requests then fail.
 
 To disable it until the next tool installation, remove `~/.local/bin/muse-ipv4`,
-open a new shell, and point GUI launchers back at `~/.local/bin/muse`.
+open a new shell, and point T3 and other GUI launchers back at
+`~/.local/bin/muse`.
 
 Run `python3 network/check-muse-ipv4.py` to check the proxy and launcher
 against a stub `muse`, offline. `network/check-claude-ipv4-install.py` also
