@@ -1,0 +1,29 @@
+#!/bin/bash
+# Pull this checkout, then run its setup. Never reset or stash local work.
+set -e
+# Braces make Bash parse the whole script before the pull can replace it.
+{
+[[ $# == 0 ]] || { echo "Usage: $0" >&2; exit 2; }
+# link.sh puts a symlink in ~/.local/bin; follow it without GNU readlink -f.
+self=${BASH_SOURCE[0]}
+while [[ -L $self ]]; do
+    target=$(readlink "$self")
+    [[ $target == /* ]] || target=$(dirname -- "$self")/$target
+    self=$target
+done
+repo=$(cd -- "$(dirname -- "$self")/.." && pwd)
+# On failure, explain blocked fast-forwards with read-only checks.
+if ! git -C "$repo" pull --ff-only --no-autostash; then
+    if git -C "$repo" rev-parse -q --verify '@{u}' >/dev/null 2>&1 &&
+        [[ -n $(git -C "$repo" rev-list '@{u}..HEAD') && -n $(git -C "$repo" rev-list 'HEAD..@{u}') ]]; then
+        echo "$repo can't be fast-forwarded because its history diverged from upstream. Local-only commits:" >&2
+        git -C "$repo" log --oneline '@{u}..HEAD' | sed 's/^/    /' >&2
+    elif [[ -n $(git -C "$repo" status --porcelain --untracked-files=no) ]]; then
+        echo "$repo can't be fast-forwarded because uncommitted changes are in the way; git's error above names the files." >&2
+    else
+        echo "The pull failed and left $repo as it was. Fix the error above, then rerun config-update." >&2
+    fi
+    exit 1
+fi
+exec bash "$repo/setup.sh"
+}
