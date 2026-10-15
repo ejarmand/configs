@@ -1,0 +1,46 @@
+#!/bin/bash
+# The home router resets IPv6 TCP connections whose server sends next, about
+# every 30 seconds, so turn IPv6 off where this machine meets that network.
+#   sudo network/home-ipv4-only              wired uplink configured by netplan
+#   sudo network/home-ipv4-only CONNECTION   one NetworkManager profile only
+set -euo pipefail
+(( EUID == 0 )) || { echo "Run with sudo." >&2; exit 1; }
+
+if (( $# )); then
+    # Scoped to the profile, so other networks keep IPv6.
+    nmcli connection modify "$1" ipv6.method disabled
+    nmcli connection up "$1"
+    exit
+fi
+
+interface=$(ip -4 route show default | awk '{ print $5; exit }')
+[[ -n $interface ]] || { echo "No IPv4 default route; nothing changed." >&2; exit 1; }
+[[ ! -d /sys/class/net/$interface/wireless ]] || {
+    echo "$interface is wireless; pass its NetworkManager profile instead." >&2
+    exit 1
+}
+network_file=$(networkctl status "$interface" 2>/dev/null | sed -n 's/^ *Network File: //p')
+[[ $network_file == */10-netplan-*.network ]] || {
+    echo "$interface isn't configured by netplan; nothing changed." >&2
+    exit 1
+}
+# Netplan names the file after the interface's ID, which a drop-in must reuse
+# for netplan to merge it into the existing definition.
+id=${network_file##*/10-netplan-}
+id=${id%.network}
+
+config=/etc/netplan/90-home-ipv4-only.yaml
+umask 077
+cat > "$config" <<EOF
+# Written by configs/network/home-ipv4-only. Delete this file and run
+# "netplan apply" to restore IPv6.
+network:
+  version: 2
+  ethernets:
+    $id:
+      dhcp6: false
+      accept-ra: false
+      link-local: []
+EOF
+# Reverts the change unless confirmed within 120 seconds.
+netplan try

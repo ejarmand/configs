@@ -292,6 +292,51 @@ Run `python3 network/check-muse-ipv4.py` to check the proxy and launcher
 against a stub `muse`, offline. `network/check-claude-ipv4-install.py` also
 covers installing it.
 
+## Home network IPv6
+
+The home router resets IPv6 TCP connections roughly every 30 seconds whenever
+the server is the side that sends next. Downloads and streamed model responses
+die. Uploads, pings and short requests survive, so quick tests look fine. IPv4
+is unaffected. The resets come in episodes lasting hours to days.
+`journalctl -u tailscaled` records them as `connection reset by peer` on
+Tailscale's relay connection.
+
+`network/check-ipv6-resets` holds three slow downloads per family open for 75
+seconds, or the number of seconds given, and reports how many were reset:
+
+```bash
+network/check-ipv6-resets
+```
+
+`network/home-ipv4-only` turns IPv6 off where a machine meets that network.
+Then every program uses IPv4, including the static and Go binaries that the
+per-tool workarounds can't reach. It needs root. On quinto and tumba, which
+stay on the home network, run it without arguments:
+
+```bash
+sudo network/home-ipv4-only
+```
+
+It takes the interface with the IPv4 default route, which must be wired and
+configured by netplan. It writes `/etc/netplan/90-home-ipv4-only.yaml`, which
+turns off DHCPv6, router advertisements and link-local addressing on that
+interface, and runs `netplan try`. That reverts the change unless you confirm
+within 120 seconds. Loopback and `tailscale0` keep IPv6. To restore IPv6,
+delete the file and run `sudo netplan apply`.
+
+On pandiero, pass the home network's NetworkManager profile instead, so other
+networks keep IPv6:
+
+```bash
+nmcli connection show   # find the home profile's name
+sudo network/home-ipv4-only 'Home Wi-Fi'
+```
+
+To restore it, run `sudo nmcli connection modify 'Home Wi-Fi' ipv6.method auto`.
+
+The Claude, Muse and Codex IPv4 workarounds stay installed on these hosts until
+each one has been switched and checked.
+
 ## Offline checks
 
 Run `python3 tests/check-setup.py` to exercise setup ordering, failures,
