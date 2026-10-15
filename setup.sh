@@ -14,7 +14,7 @@ bashrc_prepend_path() { export PATH="$1:$PATH"; }
 
 phase='storage preparation'
 case ${HOSTNAME%%.*} in
-    luogeng | yixing) bash "$repo/migrations/${HOSTNAME%%.*}.sh" --apply ;;
+    luogeng | simiao | yixing) bash "$repo/migrations/${HOSTNAME%%.*}.sh" --apply ;;
 esac
 mkdir -p "${XDG_DATA_HOME:-$HOME/.local/share}" \
     "${XDG_STATE_HOME:-$HOME/.local/state}" "${XDG_CACHE_HOME:-$HOME/.cache}" "$NVM_DIR"

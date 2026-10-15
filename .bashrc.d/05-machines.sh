@@ -1,7 +1,7 @@
 # Hostnames here are the machines' actual short hostnames, not SSH aliases.
 _bashrc_storage=
 case ${HOSTNAME%%.*} in
-    luogeng)
+    luogeng | simiao)
         _bashrc_storage=/media/earmand
         export NVM_DIR="$_bashrc_storage/.local/.nvm"
         # The root disk, which holds /home and /tmp, is full.
@@ -31,6 +31,7 @@ if [[ -n $_bashrc_storage ]]; then
     export XDG_STATE_HOME="$_bashrc_storage/.local/state"
     export XDG_CACHE_HOME="$_bashrc_storage/.cache"
     export PIXI_HOME="$_bashrc_storage/.pixi"
+    export npm_config_cache="$XDG_CACHE_HOME/npm"
 fi
 unset _bashrc_storage
 
