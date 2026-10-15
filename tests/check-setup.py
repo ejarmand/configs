@@ -177,9 +177,10 @@ echo called >> "$HOME/installer-calls"
             self.env[f"GIT_CONFIG_VALUE_{index}"] = value
         self.env["GIT_CONFIG_COUNT"] = str(len(config) + 1)
 
-        def assert_stopped():
+        def assert_stopped(message):
             result = self.run_script(command, ok=False)
-            self.assertIn("The pull failed", result.stderr)
+            self.assertEqual(result.returncode, 1)
+            self.assertIn(message, result.stderr)
             self.assertNotIn("Setup complete", result.stdout)
             self.assertEqual((clone / "install-tools.sh").read_text(), local)
             self.assertFalse((clone / "remote.txt").exists())
@@ -188,15 +189,23 @@ echo called >> "$HOME/installer-calls"
             stashes = subprocess.run(["git", "-C", str(clone), "stash", "list"],
                                      text=True, capture_output=True, check=True).stdout
             self.assertEqual(stashes, "")
+            return result
 
         def head():
             return subprocess.run(["git", "-C", str(clone), "rev-parse", "HEAD"],
                                   text=True, capture_output=True, check=True).stdout
 
-        assert_stopped()  # Uncommitted changes block the pull.
+        assert_stopped("can't be fast-forwarded because uncommitted changes are in the way")
         self.commit(clone)
         local_head = head()
-        assert_stopped()  # Diverged history.
+        short = subprocess.run(["git", "-C", str(clone), "log", "-1", "--format=%h %s"],
+                               text=True, capture_output=True, check=True).stdout
+        result = assert_stopped("can't be fast-forwarded because its history diverged from upstream")
+        self.assertIn("    " + short, result.stderr)
+        self.assertEqual(head(), local_head)
+        # Other failures, such as a missing upstream, keep the general message.
+        subprocess.run(["git", "-C", str(clone), "branch", "-q", "--unset-upstream"], check=True)
+        assert_stopped("The pull failed and left")
         self.assertEqual(head(), local_head)
 
     def test_linker_puts_config_update_on_path_with_backup(self):
