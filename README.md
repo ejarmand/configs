@@ -34,9 +34,11 @@ configs link to it. Open a new shell after setup. Existing login profiles
 are preserved; they must source `.bashrc` to load it in login shells.
 
 `link.sh` owns Bash, Neovim, and Starship configuration placement, and links
-`config-update` into `~/.local/bin`. On Linux with an installed Hyprkarl
-checkout (`$HYPRKARL_PATH`, defaulting to `~/.local/share/hyprkarl`), it also
-links the desktop overrides listed below.
+the commands in `bin/` into `~/.local/bin`: `config-update`, and `whogpu`,
+which lists each user's GPUs and memory (`-v` per process group, `-vv` per
+process). On Linux with an installed Hyprkarl checkout (`$HYPRKARL_PATH`,
+defaulting to `~/.local/share/hyprkarl`), it also links the desktop overrides
+listed below.
 Those overrides are skipped on headless machines and macOS.
 
 Conflicting managed files are moved into
@@ -97,9 +99,8 @@ It loads readable `~/.bashrc.d/*.sh` files in filename order:
   micromamba, Conda, Vite+, nvm/fnm, and lesspipe setup, each implemented once.
 - `20-aliases.sh`: GNU or macOS color options, `ll`/`la`/`l`, `gitls`, and
   `vi` plus editor defaults when Neovim is installed.
-- `25-helpers.sh`: VPN, Docker, notification, process, and GPU (`whogpu`)
-  helpers when their commands are available; mediator's htop workaround and
-  CLIProxyAPI wrapper.
+- `25-helpers.sh`: VPN, Docker, notification, and process helpers when their
+  commands are available; mediator's htop workaround and CLIProxyAPI wrapper.
 - `30-prompt.sh`: Starship when installed with a capable terminal, otherwise
   `user@host:directory`.
 
