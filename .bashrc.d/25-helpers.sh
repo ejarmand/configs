@@ -24,6 +24,100 @@ if command -v pkill >/dev/null 2>&1; then
     }
 fi
 
+if command -v nvidia-smi >/dev/null 2>&1; then
+    # Summarize GPU use per user; -v groups by process group, -vv lists processes.
+    whogpu() {
+        local verbose=0 arg apps pids pgids header
+        for arg; do
+            case $arg in
+                --verbose) verbose=$((verbose + 1)) ;;
+                -h|--help)
+                    echo 'Usage: whogpu [-v|-vv]  (-v: per process group, -vv: per process)'
+                    return 0
+                    ;;
+                *)
+                    if [[ $arg =~ ^-v+$ ]]; then
+                        verbose=$((verbose + ${#arg} - 1))
+                    else
+                        echo 'Usage: whogpu [-v|-vv]  (-v: per process group, -vv: per process)' >&2
+                        return 2
+                    fi
+                    ;;
+            esac
+        done
+        ((verbose > 2)) && verbose=2
+
+        apps="$(command nvidia-smi --query-compute-apps=gpu_uuid,pid,used_memory --format=csv,noheader,nounits)" || return
+        if [ -z "$apps" ]; then
+            echo 'No GPU processes running.'
+            return 0
+        fi
+        pids="$(cut -d, -f2 <<<"$apps" | tr -d ' ' | grep -E '^[0-9]+$' | sort -u | paste -sd,)"
+        [ -n "$pids" ] && pgids="$(ps -o pgid= -p "$pids" | tr -d ' ' | sort -u | paste -sd,)"
+
+        case $verbose in
+            0) header='user\tgpu(s)\tmemory (mean)\tmemory (total)' ;;
+            1) header='user\tpgid\tgpu(s)\tmemory (mean)\tmemory (total)\tcommand' ;;
+            2) header='user\tpid\tppid\tgpu(s)\tmemory (mean)\tmemory (total)\tcommand' ;;
+        esac
+
+        {
+            printf "$header\n"
+            {
+                command nvidia-smi --query-gpu=index,uuid --format=csv,noheader | tr -d , | sed 's/^/G /'
+                [ -n "$pids" ] && ps -o pid=,ppid=,pgid=,user:32=,args= -p "$pids" | sed 's/^ */P /'
+                [ -n "$pgids" ] && ps -o pid=,args= -p "$pgids" | sed 's/^ */L /'
+                tr -d , <<<"$apps" | sed 's/^/A /'
+            } | awk -v level="$verbose" '
+                function size(mib) {
+                    if (mib >= 10240) return sprintf("%dg", mib / 1024 + 0.5)
+                    if (mib >= 1024) return sprintf("%.1fg", mib / 1024)
+                    return sprintf("%dm", mib)
+                }
+                $1 == "G" { order[ngpus++] = $2; gpu[$3] = $2; next }
+                $1 == "P" {
+                    ppid[$2] = $3; pgid[$2] = $4; user[$2] = $5
+                    cmd = $0; sub(/^P +[0-9]+ +[0-9]+ +[0-9]+ +[^ ]+ +/, "", cmd); args[$2] = cmd
+                    next
+                }
+                $1 == "L" { cmd = $0; sub(/^L +[0-9]+ +/, "", cmd); leader[$2] = cmd; next }
+                $1 == "A" {
+                    pid = $3
+                    u = (pid in user) ? user[pid] : "?"
+                    if (level == 0) {
+                        key = u; label[key] = u
+                    } else if (level == 1) {
+                        g = (pid in pgid) ? pgid[pid] : "?"
+                        key = u SUBSEP g
+                        label[key] = u "\t" g
+                        command[key] = (g in leader) ? leader[g] : ((pid in args) ? args[pid] : "?")
+                    } else {
+                        key = u SUBSEP pid
+                        label[key] = u "\t" pid "\t" ((pid in ppid) ? ppid[pid] : "?")
+                        command[key] = (pid in args) ? args[pid] : "?"
+                    }
+                    idx = ($2 in gpu) ? gpu[$2] : "?"
+                    if (!((key, idx) in used)) { used[key, idx] = 1; count[key]++ }
+                    if ($4 ~ /^[0-9]+$/) total[key] += $4; else unknown[key] = 1
+                }
+                END {
+                    for (key in label) {
+                        list = ""
+                        for (i = 0; i < ngpus; i++)
+                            if ((key, order[i]) in used) list = list (list == "" ? "" : ",") order[i]
+                        if ((key, "?") in used) list = list (list == "" ? "" : ",") "?"
+                        if (key in unknown) { mean = "?"; sum = "?" }
+                        else { mean = size(total[key] / count[key]); sum = size(total[key]) }
+                        row = label[key] "\t" list "\t" mean "\t" sum
+                        if (level > 0) row = row "\t" command[key]
+                        print row
+                    }
+                }
+            ' | sort -t "$(printf '\t')" -k1,1 -k2,2n
+        } | column -t -s "$(printf '\t')" | if [ -t 1 ]; then cut -c "1-${COLUMNS:-$(tput cols)}"; else cat; fi
+    }
+fi
+
 if [[ ${HOSTNAME%%.*} == mediator ]]; then
     if command -v htop >/dev/null 2>&1; then
         alias htop="LD_LIBRARY_PATH='' htop"
