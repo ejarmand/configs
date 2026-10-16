@@ -262,8 +262,9 @@ install_opencode() {
   # The background server keeps running the binary that started it, and
   # clients such as T3 Code report its version, so move it onto this one.
   state=${XDG_STATE_HOME:-$HOME/.local/state}/opencode/service.json
-  running=$(sed -n 's/.*"version":"\([^"]*\)".*/\1/p' "$state" 2>/dev/null)
-  pid=$(sed -n 's/.*"pid":\([0-9]*\).*/\1/p' "$state" 2>/dev/null)
+  # A new install has no state file yet.
+  running=$(sed -n 's/.*"version":"\([^"]*\)".*/\1/p' "$state" 2>/dev/null) || running=
+  pid=$(sed -n 's/.*"pid":\([0-9]*\).*/\1/p' "$state" 2>/dev/null) || pid=
   if [ -n "$running" ] && [ "$running" != "$version" ] && [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
     if "$DATA/opencode/cli/bin/opencode" service restart >/dev/null; then
       echo "Restarted opencode's background server ($running) on $version"
