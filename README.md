@@ -94,7 +94,7 @@ the PATH helper, history settings, shell options, and system completion.
 It loads readable `~/.bashrc.d/*.sh` files in filename order:
 
 - `05-machines.sh`: the audited storage, temp/cache, and PATH settings for
-  mediator, luogeng, simiao, yixing, and the local pandiero desktop.
+  mediator, the storage machines below, and the local pandiero desktop.
 - `15-tools.sh`: optional Homebrew, Hyprkarl commands, Pixi, Cargo, Bun,
   micromamba, Conda, Vite+, nvm/fnm, and lesspipe setup, each implemented once.
 - `20-aliases.sh`: GNU or macOS color options, `ll`/`la`/`l`, `gitls`, and
@@ -117,8 +117,8 @@ and shared tool setup detects installed tools. No settings are invented for
 offline kalimba or inaccessible encoder.
 The legacy `.bash_aliases` has been folded into the shared aliases and helpers.
 
-Luogeng, simiao, and yixing share the same XDG/Pixi/npm-cache redirection code
-with different storage roots. Mediator retains its `/data` temp/cache and Apptainer locations.
+The storage machines share the same XDG/Pixi/npm-cache redirection code with
+different storage roots. Mediator retains its `/data` temp/cache and Apptainer locations.
 `claudex` keeps mediator's model mappings and reads the proxy key on invocation.
 Credential contents are not stored in this repo.
 
@@ -135,7 +135,8 @@ Bash configuration and `install-tools.sh` both use Bash 3.2-compatible syntax.
 
 ## Storage machines
 
-luogeng, simiao, and yixing keep their data on a storage drive. On each one,
+luogeng, simiao, bisheng, wenyuan, luban, and yixing keep their data on a
+storage drive. On each one,
 `05-machines.sh` gives the drive the same layout a home directory has:
 `.local/share` for `XDG_DATA_HOME`, `.local/state` for `XDG_STATE_HOME`, and
 `.cache` for `XDG_CACHE_HOME`, with npm's cache in `.cache/npm`. luogeng and
@@ -143,7 +144,12 @@ simiao use the same settings on their local `/media/earmand` drives. Their root
 disks, which hold `/home` and `/tmp`, are full, so `TMPDIR` and `NVM_DIR` are on
 the drive too. yixing's drive is the NFS-mounted `/mnt/ultracube/earmand`.
 
-Their older setups used the drive's `.local` itself as the data directory.
+bisheng (`/media/earmand`), wenyuan (`/Scratch/earmand`), and luban
+(`/media/data3/earmand`) keep `NVM_DIR` on their drives as well. Their `/tmp`
+has room, so `TMPDIR` is unchanged. They had no earlier layout, so `setup.sh`
+just creates the directories.
+
+The older setups on luogeng, simiao, and yixing used the drive's `.local` itself as the data directory.
 `setup.sh` runs `migrations/<host>.sh --apply` before installing tools. These
 helpers prepare storage only. They require the storage root to exist, and
 record a successful migration in `.local/state/configs/storage-layout-v1` so
