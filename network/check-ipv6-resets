@@ -1,0 +1,30 @@
+#!/bin/bash
+# Holds slow downloads open over IPv4 and IPv6 side by side. Short requests
+# can't show the home router's resets; they finish between them.
+set -u
+url=https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
+seconds=${1:-75}
+results=$(mktemp -d)
+trap 'rm -rf "$results"' EXIT
+
+for family in 4 6; do
+    for stream in 1 2 3; do
+        curl -"$family" -s -o /dev/null --limit-rate 60k -m "$seconds" \
+            -w '%{exitcode} %{time_total}\n' "$url" > "$results/$family.$stream" &
+    done
+done
+echo "Holding 3 downloads per family open for ${seconds}s..."
+wait
+
+for family in 4 6; do
+    held=0 reset=0 other=0 lifetimes=
+    for result in "$results/$family".*; do
+        read -r code elapsed < "$result"
+        case $code in
+            28) held=$(( held + 1 )) ;;              # still open at the time limit
+            56) reset=$(( reset + 1 )); lifetimes+=" ${elapsed%.*}s" ;;
+            *) other=$(( other + 1 )) ;;              # e.g. no route, DNS
+        esac
+    done
+    echo "IPv$family: $held held, $reset reset${lifetimes:+ (after$lifetimes)}, $other failed to run"
+done
