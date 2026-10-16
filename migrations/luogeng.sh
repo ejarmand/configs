@@ -1,12 +1,13 @@
 #!/bin/bash
-# Prepare luogeng storage. setup.sh owns the rest of machine setup.
+# Prepare luogeng or simiao storage. setup.sh owns the rest of machine setup.
+# migrations/simiao.sh links here.
 # Preview by default; --apply makes the changes.
 #
 # luogeng's root disk, which holds /home and /tmp, is full, so everything big
 # lives on /media/earmand. The old .bashrc used /media/earmand/.local itself as
 # XDG_DATA_HOME and put it on PATH for a bare starship binary. 05-machines.sh
 # now uses .local/share and .local/state there, like a home directory, and
-# keeps TMPDIR on the drive.
+# keeps TMPDIR on the drive. simiao had the same old layout on the same path.
 set -e -o pipefail
 
 case ${1:---dry-run} in
@@ -15,7 +16,10 @@ case ${1:---dry-run} in
     *) echo "Usage: $0 [--dry-run|--apply]" >&2; exit 2 ;;
 esac
 [[ $# -le 1 ]] || { echo "Usage: $0 [--dry-run|--apply]" >&2; exit 2; }
-[[ ${HOSTNAME%%.*} == luogeng ]] || { echo "This script is for luogeng." >&2; exit 1; }
+case ${HOSTNAME%%.*} in
+    luogeng | simiao) ;;
+    *) echo "This script is for luogeng and simiao." >&2; exit 1 ;;
+esac
 
 storage=/media/earmand
 backup=$storage/.local/state/configs/migration-backups/$(date -u +%Y%m%dT%H%M%SZ)-$$
@@ -48,6 +52,17 @@ fi
 if [[ -f $storage/.local/starship ]]; then
     step mkdir -p "$backup"
     step mv "$storage/.local/starship" "$backup/starship"
+fi
+# Cursor's installer always writes here, so install-tools.sh links it to the
+# drive, but only when nothing is in the way.
+cursor=$HOME/.local/share/cursor-agent
+if [[ -d $cursor && ! -L $cursor ]]; then
+    if [[ -e $storage/.local/share/cursor-agent || -L $storage/.local/share/cursor-agent ]]; then
+        echo "Cannot migrate $cursor: $storage/.local/share/cursor-agent already exists. Reconcile these before rerunning setup.sh." >&2
+        exit 1
+    fi
+    step mv "$cursor" "$storage/.local/share/cursor-agent"
+    step ln -s "$storage/.local/share/cursor-agent" "$cursor"
 fi
 # Anything else directly in .local wasn't here when this script was written.
 for entry in "$storage"/.local/* "$storage"/.local/.[!.]*; do

@@ -94,7 +94,7 @@ the PATH helper, history settings, shell options, and system completion.
 It loads readable `~/.bashrc.d/*.sh` files in filename order:
 
 - `05-machines.sh`: the audited storage, temp/cache, and PATH settings for
-  mediator, luogeng, yixing, and the local pandiero desktop.
+  mediator, luogeng, simiao, yixing, and the local pandiero desktop.
 - `15-tools.sh`: optional Homebrew, Hyprkarl commands, Pixi, Cargo, Bun,
   micromamba, Conda, Vite+, nvm/fnm, and lesspipe setup, each implemented once.
 - `20-aliases.sh`: GNU or macOS color options, `ll`/`la`/`l`, `gitls`, and
@@ -117,8 +117,8 @@ and shared tool setup detects installed tools. No settings are invented for
 offline kalimba or inaccessible encoder.
 The legacy `.bash_aliases` has been folded into the shared aliases and helpers.
 
-Luogeng and yixing share the same XDG/Pixi redirection code with different
-storage roots. Mediator retains its `/data` temp/cache and Apptainer locations.
+Luogeng, simiao, and yixing share the same XDG/Pixi/npm-cache redirection code
+with different storage roots. Mediator retains its `/data` temp/cache and Apptainer locations.
 `claudex` keeps mediator's model mappings and reads the proxy key on invocation.
 Credential contents are not stored in this repo.
 
@@ -135,11 +135,13 @@ Bash configuration and `install-tools.sh` both use Bash 3.2-compatible syntax.
 
 ## Storage machines
 
-luogeng and yixing keep their data on a storage drive. On each one,
+luogeng, simiao, and yixing keep their data on a storage drive. On each one,
 `05-machines.sh` gives the drive the same layout a home directory has:
 `.local/share` for `XDG_DATA_HOME`, `.local/state` for `XDG_STATE_HOME`, and
-`.cache` for `XDG_CACHE_HOME`. luogeng's root disk, which holds `/home` and
-`/tmp`, is full, so `TMPDIR` is on its drive too.
+`.cache` for `XDG_CACHE_HOME`, with npm's cache in `.cache/npm`. luogeng and
+simiao use the same settings on their local `/media/earmand` drives. Their root
+disks, which hold `/home` and `/tmp`, are full, so `TMPDIR` and `NVM_DIR` are on
+the drive too. yixing's drive is the NFS-mounted `/mnt/ultracube/earmand`.
 
 Their older setups used the drive's `.local` itself as the data directory.
 `setup.sh` runs `migrations/<host>.sh --apply` before installing tools. These
@@ -148,12 +150,14 @@ record a successful migration in `.local/state/configs/storage-layout-v1` so
 rerunning setup does not move newly created files in the old locations.
 Known source/destination conflicts stop setup for manual reconciliation.
 yixing moves recognized application data and leaves unknown or hidden entries
-alone. luogeng moves the old less history and backs up its bare Starship binary.
+alone. luogeng's script, which simiao's links to, moves the old less history,
+backs up the bare Starship binary, and moves a real `~/.local/share/cursor-agent`
+onto the drive so Cursor's installer writes there.
 
 You can inspect storage moves without applying them:
 
 ```bash
-bash ./migrations/luogeng.sh            # or yixing.sh
+bash ./migrations/luogeng.sh            # or simiao.sh, yixing.sh
 ```
 
 ## Tools
@@ -183,7 +187,7 @@ to update it; the script also restarts opencode's background server when it's
 running an older version.
 
 The script loads `.bashrc.d/05-machines.sh` itself before installing anything,
-so the storage-drive data directory and `NVM_DIR` on luogeng and yixing apply
+so the storage-drive data directory and `NVM_DIR` on the storage machines apply
 even from a shell that hasn't read them. That file also picks the default
 `NVM_DIR` for both the installer and `15-tools.sh`.
 

@@ -365,6 +365,9 @@ echo called >> "$HOME/installer-calls"
         (storage / ".local").mkdir(parents=True)
         (storage / ".local/lesshst").write_text("history")
         (storage / ".local/starship").write_text("old binary")
+        cursor = self.home / ".local/share/cursor-agent"
+        cursor.mkdir(parents=True)
+        (cursor / "version").write_text("old cursor")
         (self.repo / "install-tools.sh").write_text('set -e\n. "$(dirname "$0")/.bashrc.d/05-machines.sh"\n[ -d "$TMPDIR" ]\n[ -f "$XDG_STATE_HOME/lesshst" ]\n[ -d "$NVM_DIR" ]\n')
         self.run_script("migrations/luogeng.sh")
         self.assertFalse((storage / "tmp").exists())
@@ -373,6 +376,8 @@ echo called >> "$HOME/installer-calls"
         saved = list((storage / ".local/state/configs/migration-backups").glob("*/starship"))
         self.assertEqual(len(saved), 1)
         self.assertEqual(saved[0].read_text(), "old binary")
+        self.assertTrue(cursor.is_symlink())
+        self.assertEqual((storage / ".local/share/cursor-agent/version").read_text(), "old cursor")
         self.run_script("setup.sh")
 
 
