@@ -539,7 +539,10 @@ if [ "${1-}" = --codex-sandbox ]; then
 fi
 
 failed=
-for tool in neovim codex opencode starship pixi uv node rg gh claude muse cursor; do
+tools="neovim codex opencode starship pixi uv node rg gh claude muse cursor"
+# 05-machines.sh sets this on hosts that shouldn't run agent CLIs.
+[ -z "${CONFIGS_NO_AGENTS-}" ] || tools="neovim starship pixi uv node rg gh"
+for tool in $tools; do
   echo
   echo "== $tool"
   # Each tool runs in its own subshell so one failure doesn't stop the rest.

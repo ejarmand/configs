@@ -45,6 +45,11 @@ fi
 remote_script=$(cat <<'REMOTE'
 main() {
   version=$1 mode=$2
+  # The host's 05-machines.sh marks lab servers that shouldn't run T3.
+  if bash -c 'bashrc_prepend_path() { :; }; . "$HOME/.bashrc.d/05-machines.sh" && [ -n "${CONFIGS_NO_AGENTS-}" ]' 2>/dev/null; then
+    echo "agents and T3 don't run on this host; skipped"
+    exit 0
+  fi
   base=$HOME/.t3
   runtime_dir=$base/runtime/versions/$version
   runtime_file=$base/userdata/server-runtime.json
