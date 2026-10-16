@@ -9,6 +9,19 @@ case ${HOSTNAME%%.*} in
             export TMPDIR="$_bashrc_storage/tmp"
         fi
         ;;
+    bisheng)
+        _bashrc_storage=/media/earmand
+        export NVM_DIR="$_bashrc_storage/.local/.nvm"
+        ;;
+    wenyuan)
+        _bashrc_storage=/Scratch/earmand
+        export NVM_DIR="$_bashrc_storage/.local/.nvm"
+        ;;
+    luban)
+        # /home is on the full /local disk; /tmp has its own partition.
+        _bashrc_storage=/media/data3/earmand
+        export NVM_DIR="$_bashrc_storage/.local/.nvm"
+        ;;
     yixing)
         _bashrc_storage=/mnt/ultracube/earmand
         ;;
