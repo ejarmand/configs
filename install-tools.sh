@@ -404,17 +404,30 @@ print(f"Set T3's {instance_id} binary path to {launcher}")
 PY
 }
 
-# ~/.local/bin/muse is Muse Code's launcher, which updates itself and the binary
-# next to it. Install it only when it's missing; its install mode downloads the
-# binary and may print a sign-in link the first time.
+# ~/.local/bin/muse links to Muse Code's launcher, which updates itself and the
+# binary next to it, following links to find that directory. The binary is
+# large, so both live under $DATA. Install the launcher only when it's missing;
+# its install mode downloads the binary and may print a sign-in link the first
+# time.
 install_muse() {
-  if [ -x "$BIN/muse" ]; then
+  dest=$DATA/muse/launcher
+  # Earlier runs left the launcher and binary in ~/.local/bin.
+  if [ -f "$BIN/muse" ] && [ ! -L "$BIN/muse" ] && [ ! -e "$dest/muse" ]; then
+    mkdir -p "$dest"
+    for file in "$BIN"/muse "$BIN"/muse-bin-* "$BIN"/.muse-*; do
+      [ -e "$file" ] && mv "$file" "$dest/"
+    done
+    echo "Moved Muse Code from $BIN to $dest"
+  fi
+  if [ -x "$dest/muse" ]; then
+    link "$dest/muse" muse
     echo "Muse Code is installed and updates itself"
   else
     curl -fsSL --proto '=https' -o "$TMP/muse" https://api.meta.ai/muse-launcher.sh
     bash -n "$TMP/muse" || fail "The Muse Code launcher download is not a valid script"
-    set_aside muse
-    install -m 755 "$TMP/muse" "$BIN/muse"
+    mkdir -p "$dest"
+    install -m 755 "$TMP/muse" "$dest/muse"
+    link "$dest/muse" muse
     MUSE_LAUNCHER_INSTALL=1 "$BIN/muse"
     echo "Installed $BIN/muse"
   fi
