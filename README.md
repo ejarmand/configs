@@ -83,7 +83,7 @@ They also hold my personal [Hyprkarl](https://github.com/ejarmand/hyprkarl) sett
 - `uwsm/env.local`: session environment (secrets go in the untracked `~/.config/uwsm/env.secrets`)
 - `ghostty/local.conf`: Ghostty overrides
 - `xdg-terminals.list`: default terminal
-- `hyprkarl/apps/t3code.conf`: `hk-app` recipe for T3 Code; on install it runs `t3code-remote-update.sh`, which moves every SSH host running T3 onto a background service at the same release so a desktop restart no longer stops it
+- `hyprkarl/apps/t3code.conf`: `hk-app` recipe for T3 Code; on install it runs `t3code-remote-update.sh`, which moves every SSH host running T3 onto a background service at the same release so a desktop restart no longer stops it. It skips the lab servers (see Storage machines)
 
 `setup.sh` applies these overrides where Hyprkarl is installed.
 
@@ -149,6 +149,11 @@ bisheng (`/media/earmand`), wenyuan (`/Scratch/earmand`), and luban
 has room, so `TMPDIR` is unchanged. They had no earlier layout, so `setup.sh`
 just creates the directories.
 
+These are shared lab servers, so agents and T3 run elsewhere and reach them
+over SSH. `05-machines.sh` sets `CONFIGS_NO_AGENTS=1` on them; `install-tools.sh`
+then skips Codex, opencode, Claude Code, Muse, and the Cursor CLI, and
+`t3code-remote-update.sh` skips the host.
+
 The older setups on luogeng, simiao, and yixing used the drive's `.local` itself as the data directory.
 `setup.sh` runs `migrations/<host>.sh --apply` before installing tools. These
 helpers prepare storage only. They require the storage root to exist, and
@@ -170,7 +175,8 @@ bash ./migrations/luogeng.sh            # or simiao.sh, yixing.sh
 
 `install-tools.sh` installs Neovim, Codex, opencode, Starship, Pixi, uv, nvm
 with Node LTS, Claude Code and the Cursor CLI, or updates them to their latest
-release. It installs Muse Code's launcher when it's missing; the launcher
+release (the lab servers get only the non-agent tools; see Storage machines).
+It installs Muse Code's launcher when it's missing; the launcher
 updates itself and Muse after that. The launcher keeps Muse's binary, about
 370M, beside itself, so both live in `${XDG_DATA_HOME:-~/.local/share}/muse/launcher`
 with a link in `~/.local/bin`; an older install in `~/.local/bin` is moved there. Every run also sets

@@ -48,6 +48,12 @@ if [[ -n $_bashrc_storage ]]; then
 fi
 unset _bashrc_storage
 
+# Lab servers. Agents and T3 run elsewhere and manage them over SSH, so
+# install-tools.sh and t3code-remote-update.sh leave them out here.
+case ${HOSTNAME%%.*} in
+    luogeng | yixing | simiao | bisheng | wenyuan | luban) export CONFIGS_NO_AGENTS=1 ;;
+esac
+
 # install-tools.sh reads this file too, so nvm is installed where shells load it.
 if [[ -z ${NVM_DIR-} ]]; then
     NVM_DIR="$HOME/.nvm"
