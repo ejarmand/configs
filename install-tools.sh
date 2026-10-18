@@ -1,11 +1,11 @@
 #!/bin/bash
 # Install the command-line tools these configs expect, or update them to their
-# latest release. Each tool is unpacked under ${XDG_DATA_HOME:-~/.local/share}
+# latest version. Each tool is unpacked under ${XDG_DATA_HOME:-~/.local/share}
 # and linked into ~/.local/bin; nvm goes in $NVM_DIR, and Claude Code and
 # Cursor where their installers put them. The machine settings in
 # .bashrc.d/05-machines.sh (storage-drive XDG dirs, NVM_DIR) are loaded first,
 # so this works the same from a shell that hasn't read them.
-# Safe to rerun: a tool already at its latest release isn't downloaded again.
+# Safe to rerun: a tool already at its latest version isn't downloaded again.
 # Shell startup files are never edited; on some hosts, one line is added to
 # Codex's config.toml (see codex_ip_family). Old copies elsewhere are left in
 # place and listed at the end. Runs on Linux x86_64 and macOS arm64, under
@@ -317,6 +317,15 @@ install_node() {
   nvm alias default 'lts/*' || fail "Could not make LTS nvm's default"
 }
 
+install_litget() {
+  # No runtime dependencies beyond Node. Track main, including changes that
+  # keep the same package version, and reuse the archive installer's swaps.
+  sha=$(git ls-remote https://github.com/ejarmand/litget.git refs/heads/main | cut -f1)
+  [ -n "$sha" ] || fail "Could not find the latest commit of ejarmand/litget"
+  base=https://github.com/ejarmand/litget/archive
+  release_install ejarmand/litget "$sha" "$sha.tar.gz" "" "$DATA/litget" 1 litget=bin/litget.mjs
+}
+
 install_rg() {
   # Use a ripgrep from elsewhere if there is one; otherwise install and update ours.
   if ours rg "$DATA/ripgrep" || ! command -v rg >/dev/null; then
@@ -495,7 +504,7 @@ install_cursor() {
 # started with, old install locations, and anything this run moved out of the
 # way. They're left for manual cleanup.
 other_copies() {
-  names="nvim codex opencode starship pixi uv uvx node claude cursor-agent"
+  names="nvim codex opencode starship pixi uv uvx node litget claude cursor-agent"
   ours rg "$DATA/ripgrep" && names="$names rg"
   ours gh "$DATA/gh/cli" && names="$names gh"
   bin_real=$(cd "$BIN" && pwd -P)
@@ -520,7 +529,7 @@ other_copies() {
   cat "$TMP/moved" 2>/dev/null
   # Copies a run made before the data directory or NVM_DIR moved.
   if [ "$DATA" != "$HOME/.local/share" ]; then
-    for dir in neovim codex opencode/cli starship pixi uv/bin ripgrep gh/cli; do
+    for dir in neovim codex opencode/cli starship pixi uv/bin litget ripgrep gh/cli; do
       [ -e "$HOME/.local/share/$dir/.release-tag" ] && echo "$HOME/.local/share/$dir"
     done
   fi
@@ -539,9 +548,9 @@ if [ "${1-}" = --codex-sandbox ]; then
 fi
 
 failed=
-tools="neovim codex opencode starship pixi uv node rg gh claude muse cursor"
+tools="neovim codex opencode starship pixi uv node litget rg gh claude muse cursor"
 # 05-machines.sh sets this on hosts that shouldn't run agent CLIs.
-[ -z "${CONFIGS_NO_AGENTS-}" ] || tools="neovim starship pixi uv node rg gh"
+[ -z "${CONFIGS_NO_AGENTS-}" ] || tools="neovim starship pixi uv node litget rg gh"
 for tool in $tools; do
   echo
   echo "== $tool"

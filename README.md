@@ -61,6 +61,7 @@ canonical skill into `~/.agents/skills` and `~/.claude/skills`, and its executab
 `bin/` helpers into `~/.local/bin`, with the same backup policy as configs.
 Unrelated skills and agent settings stay in place. Keep the skills checkout
 while links point to it; rerunning setup updates it and links new skills.
+The tool installer also installs and updates `litget` for the research skill.
 
 Neovim's `lazy-lock.json` is local to each machine and ignored by Git. Before
 pulling the commit that first removes the tracked lockfile on another machine,
@@ -174,8 +175,8 @@ bash ./migrations/luogeng.sh            # or simiao.sh, yixing.sh
 ## Tools
 
 `install-tools.sh` installs Neovim, Codex, opencode, Starship, Pixi, uv, nvm
-with Node LTS, Claude Code and the Cursor CLI, or updates them to their latest
-release (the lab servers get only the non-agent tools; see Storage machines).
+with Node LTS, litget, Claude Code and the Cursor CLI, or updates them to their
+latest version (the lab servers get only the non-agent tools; see Storage machines).
 It installs Muse Code's launcher when it's missing; the launcher
 updates itself and Muse after that. The launcher keeps Muse's binary, about
 370M, beside itself, so both live in `${XDG_DATA_HOME:-~/.local/share}/muse/launcher`
@@ -190,7 +191,7 @@ bash ./install-tools.sh
 ```
 
 Each tool is unpacked under `${XDG_DATA_HOME:-~/.local/share}` (`neovim`,
-`codex`, `opencode/cli`, `starship`, `pixi`, `uv/bin`, `ripgrep`, `gh/cli`) and
+`codex`, `opencode/cli`, `starship`, `pixi`, `uv/bin`, `litget`, `ripgrep`, `gh/cli`) and
 linked into `~/.local/bin`. On Linux `codex` is the fork's build; on macOS it's
 upstream's. nvm goes in `$NVM_DIR`, and Claude Code and Cursor wherever their
 own installers put them. Cursor's installer always writes to
@@ -199,6 +200,11 @@ is linked into it first. opencode is v2, which comes from npm rather than GitHub
 releases. `opencode upgrade` doesn't recognize that install, so rerun the script
 to update it; the script also restarts opencode's background server when it's
 running an older version.
+
+litget is installed from the latest commit on `ejarmand/litget`'s `main` branch.
+It runs on Node LTS and has no third-party runtime dependencies. Its source
+archive lives under the data directory with a link in `~/.local/bin`, so it
+stays installed across Node upgrades. Unchanged commits are not downloaded again.
 
 The script loads `.bashrc.d/05-machines.sh` itself before installing anything,
 so the storage-drive data directory and `NVM_DIR` on the storage machines apply
