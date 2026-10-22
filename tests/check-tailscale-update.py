@@ -65,7 +65,7 @@ class TailscaleChecks(unittest.TestCase):
         self.mac_app = self.root / "Tailscale"
         script = script.replace("/Applications/Tailscale.app/Contents/MacOS/Tailscale", str(self.mac_app))
         self.functions = self.root / "functions.sh"
-        self.functions.write_text(script.rsplit("\ntrust_store\n", 1)[0] + "\n")
+        self.functions.write_text(script.rsplit("\nmain\n", 1)[0] + "\n")
 
     def stub(self, name, body, directory=None):
         path = (directory or self.bin) / name
@@ -83,10 +83,10 @@ class TailscaleChecks(unittest.TestCase):
         if new_daemon:
             (self.state / "new-daemon").write_text(new_daemon + "\n")
 
-    def run_check(self):
+    def run_check(self, failed=""):
         result = subprocess.run(
-            ["/bin/bash", "-c", 'f=$1; shift; . "$f"; failed=; tailscale_update; echo "failed=[$failed]"', "check",
-             str(self.functions)], env=self.env, text=True, capture_output=True)
+            ["/bin/bash", "-c", 'f=$1 was=$2; shift 2; . "$f"; failed=$was; tailscale_update; echo "failed=[$failed]"',
+             "check", str(self.functions), failed], env=self.env, text=True, capture_output=True)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         return result.stdout + result.stderr
 
@@ -138,6 +138,15 @@ class TailscaleChecks(unittest.TestCase):
         self.assertIn("Ask the server's admins", out)
         self.assertNotIn("sudo", self.calls())
         self.assertIn("failed=[]", out)
+
+    def test_failed_trust_store_skips_update(self):
+        self.install("1.98.0", daemon="1.98.0", new_client="1.104.2")
+        (self.state / "sudo-ok").touch()
+        self.stub("sudo", SUDO)
+        out = self.run_check(failed=" trust-store")
+        self.assertIn("Client 1.98.0, daemon 1.98.0", out)
+        self.assertIn("Skipped the update, because the trust store check failed", out)
+        self.assertNotIn("update --yes", self.calls())
 
     def test_failed_update_fails(self):
         self.install("1.98.0", daemon="1.98.0")

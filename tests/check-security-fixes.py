@@ -1,9 +1,11 @@
 """Offline checks of install/security-fixes.sh's trust store, pip, npm,
-LiteLLM and file permission steps.
+LiteLLM and file permission steps, and of the order main runs them in.
 
-The script's functions are loaded into a fake home. The real openssl checks
-bundles against the repo's forged chains; curl is a stub that can't connect,
-so nothing touches the network.
+The script's functions are loaded into a fake home. The PATH holds only links
+to harmless real tools, including the openssl that checks bundles against the
+repo's forged chains, and stubs that log their calls. curl can't connect, and
+sudo, brew, docker, tailscale, ssh, wget and package managers never reach the
+real ones, so nothing touches the network or the system.
 """
 import os
 from pathlib import Path
@@ -15,6 +17,23 @@ import unittest
 REPO = Path(__file__).resolve().parent.parent
 SYSTEM_BUNDLE = Path("/etc/ssl/certs/ca-certificates.crt")
 CHAINS = REPO / "install/emudhra-chains"
+# Real commands the script may run; everything else on its PATH is a stub.
+REAL = ("bash", "sh", "openssl", "awk", "sed", "grep", "find", "sort", "mkdir", "rm", "mv", "cp", "ln",
+        "cat", "base64", "ls", "mktemp", "chmod", "ps", "id", "uname", "head", "tr", "wc", "cksum", "cut",
+        "readlink", "date")
+# Stubs that log "NAME ARGS" and fail, unless a test replaces them.
+STUBS = ("curl", "wget", "sudo", "brew", "docker", "tailscale", "ssh", "apt-get", "dnf", "yum",
+         "update-ca-certificates", "keytool", "python", "python3", "pip", "node", "uv")
+LOG = 'echo "${0##*/} $*" >> "$CALLS"\n'
+
+TAILSCALE = LOG + '''case "$*" in
+  version) cat "$STATE/client" ;;
+  "version --daemon") echo "Daemon: $(cat "$STATE/client")" ;;
+  "update --yes") echo 1.104.2 > "$STATE/client" ;;
+  *) exit 2 ;;
+esac
+'''
+SUDO = LOG + '[ "$1" = -n ] || exit 1\nshift\n[ "$*" = true ] || exec "$@"\n'
 
 
 def certs(path):
@@ -41,22 +60,45 @@ class SecurityFixesChecks(unittest.TestCase):
         self.home.mkdir()
         self.bin = self.root / "bin"
         self.bin.mkdir()
-        (self.bin / "curl").write_text("#!/bin/sh\nexit 7\n")
-        (self.bin / "curl").chmod(0o755)
+        self.state = self.root / "state"
+        self.state.mkdir()
+        self.calls_file = self.state / "calls"
+        for name in REAL:
+            os.symlink(shutil.which(name), self.bin / name)
+        for name in STUBS:
+            self.stub(name, LOG + ("exit 7\n" if name == "curl" else "exit 1\n"))
         script = (REPO / "install/security-fixes.sh").read_text()
+        # Keep the absolute Homebrew and Mac app paths inside the fixture too.
+        for path in ("/home/linuxbrew/.linuxbrew/bin/brew", "/opt/homebrew/bin/brew", "/usr/local/bin/brew",
+                     "/Applications/Tailscale.app/Contents/MacOS/Tailscale"):
+            self.assertIn(path, script)
+            script = script.replace(path, str(self.root / "absent" / path.lstrip("/")))
         self.functions = self.root / "functions.sh"
-        self.functions.write_text(script.rsplit("\ntrust_store\n", 1)[0] + "\n")
-        self.env = {"HOME": str(self.home), "PATH": f"{self.bin}:/usr/bin:/bin", "LANG": "C",
-                    "XDG_DATA_HOME": str(self.home / ".local/share")}
+        self.functions.write_text(script.rsplit("\nmain\n", 1)[0] + "\n")
+        self.env = {"HOME": str(self.home), "PATH": str(self.bin), "LANG": "C", "TMPDIR": str(self.root),
+                    "XDG_DATA_HOME": str(self.home / ".local/share"), "CALLS": str(self.calls_file),
+                    "STATE": str(self.state)}
         self.bundle = self.home / ".local/share/configs/ca-bundle.pem"
 
+    def stub(self, name, body, directory=None):
+        path = (directory or self.bin) / name
+        if path.is_symlink() or path.exists():
+            path.unlink()
+        path.write_text("#!/bin/sh\n" + body)
+        path.chmod(0o755)
+        return path
+
+    def calls(self):
+        return self.calls_file.read_text() if self.calls_file.exists() else ""
+
     def run_steps(self, steps, ok=True, **env):
-        # Use the stub curl and the repo's chains, whatever the real paths hold.
+        # Only the fixture's commands, the repo's chains and its ca-env.sh,
+        # whatever the real paths hold.
         body = (f'set --; . "{self.functions}"\n'
-                f'pick() {{ case $1 in curl) echo "{self.bin}/curl" ;; *) command -v "$1" ;; esac; }}\n'
-                f'CHAINS="{CHAINS}"\n{steps}\n'
+                f'pick() {{ [ -x "{self.bin}/$1" ] && echo "{self.bin}/$1"; }}\n'
+                f'CHAINS="{CHAINS}" CONFIGS_REPO="{REPO}"\n{steps}\n'
                 '[ -z "$failed" ] || { echo "failed:$failed" >&2; exit 1; }\n')
-        result = subprocess.run(["bash", "-c", body], env={**self.env, **env}, text=True,
+        result = subprocess.run([shutil.which("bash"), "-c", body], env={**self.env, **env}, text=True,
                                 capture_output=True)
         self.assertEqual(result.returncode == 0, ok, result.stdout + result.stderr)
         return result.stdout + result.stderr
@@ -138,11 +180,104 @@ class SecurityFixesChecks(unittest.TestCase):
         site.mkdir(parents=True)
         (site / "sitecustomize.py").write_text("# an ordinary one\n")
         out = self.run_steps("litellm")
-        self.assertIn("No traces found", out)
+        self.assertIn("No known indicators", out)
         (site / "cook.pth").write_text("import cook\n")
         out = self.run_steps("litellm", ok=False)
         self.assertIn("cook.pth", out)
         self.assertNotIn("sitecustomize.py", out)
+        self.assertNotIn("Not checked", out)
+
+    def test_litellm_docker_image_fails(self):
+        self.stub("docker", LOG + 'echo "litellm:main-latest sha256:1bbcb1443bc962e45f5aad53fe3d2c30600e0379715fb6c664cdd3ac126c339e"\n')
+        out = self.run_steps("litellm", ok=False)
+        self.assertIn("Docker image litellm:main-latest", out)
+
+    def test_clean_litellm_scan_says_what_it_did_not_check(self):
+        (self.home / "projects").mkdir()
+        out = self.run_steps("litellm")
+        self.assertIn(f"  {self.home}/projects", out)
+        self.assertIn("not a clean bill of health", out)
+        self.assertIn("Docker images: could not list them", out)
+        self.assertIn("including network mounts", out)
+        self.assertIn("pip's HTTP cache", out)
+        self.assertIn("treat this machine's credentials as stolen", out)
+        self.assertNotIn("No traces found", out)
+        (self.bin / "docker").unlink()
+        self.assertIn("Docker images: no docker command", self.run_steps("litellm"))
+
+    @unittest.skipIf(os.geteuid() == 0, "root reads everything")
+    def test_unreadable_directory_is_reported(self):
+        locked = self.home / "projects/locked"
+        locked.mkdir(parents=True)
+        locked.chmod(0)
+        self.addCleanup(locked.chmod, 0o700)
+        out = self.run_steps("litellm")
+        self.assertIn(f"Parts of {self.home}/projects: no permission to read them", out)
+
+    # main, end to end. Each adds an old Node and Tailscale and passwordless
+    # sudo, so any step that runs or updates them leaves a call in the log.
+    def machine(self, system_bundle):
+        node = self.home / ".nvm/versions/node/v24.22.0/bin/node"
+        node.parent.mkdir(parents=True)
+        node.write_text("#!/bin/sh\n" + LOG + "echo v24.22.0\n")
+        node.chmod(0o755)
+        (self.state / "client").write_text("1.98.0\n")
+        self.stub("tailscale", TAILSCALE)
+        self.stub("sudo", SUDO)
+        # Homebrew with ca-certificates, whose generated bundle is the clean system one.
+        prefix = self.root / "brew"
+        (prefix / "etc/ca-certificates").mkdir(parents=True)
+        shutil.copy(SYSTEM_BUNDLE, prefix / "etc/ca-certificates/cert.pem")
+        self.stub("brew", LOG + f'case "$1" in --prefix) echo "{prefix}" ;; esac\n')
+        return {"SYSTEM_CA_BUNDLE": str(system_bundle)}
+
+    def test_litellm_trace_stops_before_anything_downloads_or_runs(self):
+        env = self.machine(SYSTEM_BUNDLE)
+        site = self.home / ".venv/lib/python3.12/site-packages"
+        site.mkdir(parents=True)
+        (site / "cook.pth").write_text("import cook\n")
+        out = self.run_steps("main", ok=False, **env)
+        self.assertIn("Stopped before the trust store", out)
+        self.assertFalse(self.bundle.exists(), out)
+        # docker only lists images; nothing else ran.
+        self.assertEqual([c for c in self.calls().splitlines() if not c.startswith("docker ")], [], out)
+
+    def test_failed_trust_store_skips_homebrew_and_tailscale_updates(self):
+        corrupt = self.write_bundle("corrupt.pem", certs(SYSTEM_BUNDLE) +
+                                    ["-----BEGIN CERTIFICATE-----\nnotbase64\n-----END CERTIFICATE-----\n"])
+        env = self.machine(corrupt)
+        out = self.run_steps("main", ok=False, **env)
+        calls = self.calls()
+        self.assertIn("Skipped the upgrade, because the trust store check failed", out)
+        self.assertIn("Skipped the update, because the trust store check failed", out)
+        for call in ("brew update", "brew upgrade", "tailscale update", "curl"):
+            self.assertNotIn(call, calls, out)
+        # Local-only steps still run.
+        self.assertIn("Node v24.22.0, fixed in 24.22.1", out)
+        self.assertIn("== Private files", out)
+
+    def test_failed_homebrew_store_skips_brew_tailscale_update(self):
+        prefix = self.root / "brew"
+        (prefix / "bin").mkdir(parents=True)
+        (self.state / "client").write_text("1.98.0\n")
+        self.stub("tailscale", TAILSCALE, prefix / "bin")
+        self.stub("brew", LOG + f'case "$1" in --prefix) echo "{prefix}" ;; esac\n', prefix / "bin")
+        out = self.run_steps('failed=" homebrew"; tailscale_update; failed=', PATH=f"{prefix}/bin:{self.bin}")
+        self.assertIn("Skipped brew upgrade tailscale", out)
+        self.assertNotIn("upgrade", self.calls())
+
+    def test_passing_checks_go_on_to_the_updates(self):
+        env = self.machine(SYSTEM_BUNDLE)
+        out = self.run_steps("main", **env)
+        calls = self.calls().splitlines()
+        self.assertTrue(self.bundle.is_symlink(), out)
+        for call in ("brew update --quiet", "brew upgrade ca-certificates",
+                     f"sudo -n {self.bin}/tailscale update --yes"):
+            self.assertIn(call, calls, out)
+        # The LiteLLM check came first, before anything else ran.
+        self.assertTrue(calls[0].startswith("docker "), calls)
+        self.assertIn("Now client 1.104.2", out)
+        self.assertIn("not a clean bill of health", out)
 
     def test_private_files_lose_group_and_other_access(self):
         ssh = self.home / ".ssh"

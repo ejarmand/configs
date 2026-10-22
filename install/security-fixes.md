@@ -14,6 +14,21 @@ certificates or shows traces of the LiteLLM payload. Everything else it fixes
 when it can and reports when it can't, usually because the fix needs sudo.
 Fixed versions and indicators below were current on 2026-10-22.
 
+The steps run in this order, and a failure stops the ones that depend on it:
+
+1. LiteLLM: looks for the payload by name and content, without starting Python
+   or any of the runtimes below. On any trace it stops there: nothing is
+   downloaded, updated or run, and no other fix is applied.
+2. Trust store: builds and checks the bundle. When the check fails, the
+   Homebrew and Tailscale updates and the npm setting are skipped, each with a
+   message, and the run fails. The local-only steps (the runtime list, pip,
+   `/tmp` links and permissions) still run.
+3. Homebrew's `ca-certificates`, the runtime list, Tailscale, pip, npm, `/tmp`
+   links and file permissions.
+
+`python3 tests/check-security-fixes.py` checks this order with stub commands,
+so no real `sudo`, `brew`, `docker`, Tailscale or network is used.
+
 ## eMudhra intermediates
 
 On 2025-04-30, eMudhra created eight intermediate CAs whose private keys anyone
@@ -71,20 +86,32 @@ CA, git still reached GitHub. And once a curlrc sets `capath`, curl ignores
 - `install/ca-env.sh` forces the same for the installer, the skills clone in
   `setup.sh` and the script's own Homebrew step. It also points `CURL_HOME` at a
   curlrc that sets both `cacert` and `capath`.
-- `hyprkarl/apps/t3code-remote-update.sh` downloads with each host's bundle.
+- `hyprkarl/apps/t3code-remote-update.sh` downloads on each host only with
+  that host's bundle and empty CA directory, passed to `curl -q` (which skips
+  `~/.curlrc`) or `wget --no-config`. If either is missing, or the directory
+  isn't empty, it stops before downloading and says to run setup on that host;
+  it never falls back to the host's default store, and doesn't run this script
+  there itself. `--dry-run`, and hosts that already have the release, don't
+  need them. `python3 tests/check-t3code-remote-update.py` checks this.
 - npm gets `cafile` in `~/.npmrc`, since Node itself keeps its own roots.
 
 These reach programs started from a shell or by setup. systemd services, cron
-jobs and desktop apps keep their own trust until the system store and the
-runtimes are updated.
+jobs, desktop apps and containers don't read them, and keep their own trust
+until the system store, the runtimes and the images are updated; the script
+doesn't change their environments. A CA variable that is already set in a
+shell, and an existing `cafile` or `ca` in `~/.npmrc`, are kept as they are, on
+the assumption that they were set on purpose.
 
 ### System and Homebrew stores
 
 The system's `ca-certificates` is upgraded with `sudo -n`, so never with a
-password prompt, and never on the lab servers or macOS. macOS doesn't update
+password prompt, and never on the lab servers or macOS. This runs before the
+store is checked, since the store it fixes is the one being checked; apt, dnf
+and yum check the package's signature with their own keys, not with TLS. macOS doesn't update
 `/etc/ssl/cert.pem` for this; Apple's own blocking of the intermediates was
 still incomplete on 2026-10-22, so Macs use the filtered copy. Homebrew's
-`ca-certificates` (fixed in 2026-09-25_1) is upgraded on its own. On Linux,
+`ca-certificates` (fixed in 2026-09-25_1) is upgraded on its own, once the
+bundle has passed its check. On Linux,
 brew's sandboxed post-install left `etc/ca-certificates/cert.pem` empty on
 2026-10-22, which breaks all of brew's TLS. Running the formula's
 `libexec/post-install` directly rebuilt it, so the script does that and checks
@@ -100,6 +127,11 @@ updates uv, pixi, Node's LTS and Claude Code right after. Java reads its own
 `cacerts`, which the system update doesn't always rebuild; with passwordless
 sudo the script runs `update-ca-certificates -f`.
 
+The list is a warning, not a fix. Older versions installed alongside newer
+ones (other nvm versions, project environments, copies in tool directories)
+stay until you remove them, since something may still use them, and programs
+already running keep the version they started with.
+
 ### Tailscale
 
 Tailscale 1.104.2 is built with Go 1.27.3, which distrusts the intermediates
@@ -107,7 +139,11 @@ whatever the system store says. Traffic between nodes is WireGuard and doesn't
 use Web PKI, but the client fetches the control server's key over HTTPS at each
 start without pinning it, so an older client on a store that trusts the forged
 certificates can be pointed at a fake control server. The script updates older
-installs where it can and checks that the running daemon is updated too.
+installs where it can and checks that the running daemon is updated too. It
+doesn't update when the trust store check failed, nor through Homebrew when
+Homebrew's own store failed its check. The Mac app, the lab servers' copies
+and machines where sudo needs a password are left for you to update; the script
+prints what to do and doesn't fail for them.
 
 - TS-2026-013: <https://tailscale.com/security-bulletins>
 - Control key fetch: [`control/controlclient/direct.go`](https://github.com/tailscale/tailscale/blob/main/control/controlclient/direct.go) (`loadServerPubKeys`)
@@ -121,12 +157,29 @@ malicious images. `cook.pth` and `sitecustomize.py` run a credential stealer at
 every Python start, pip included, and a detached daemon holds
 `/tmp/remote_code_loader.lock`. The last clean release is 1.106.2.
 
-The script never starts Python. It looks in environments, caches and the
-storage drive for `litellm-1.107.0` packages, `cook.pth`, `cook.py`, their
-`.pyc` files, and any `sitecustomize.py` that names the payload. It also checks
-for the marker files, `PRIVCOLLECT_ACTIVE`, this user's processes, and the
-images' digests. pip's HTTP cache stores downloads under hashed names, so a
-cached wheel can't be found by name.
+The script runs this check first and never starts Python. It looks in
+environments, caches, `~/projects`, the storage drive and `CONFIGS_SCAN_DIRS`
+for `litellm-1.107.0` packages, `cook.pth`, `cook.py`, their `.pyc` files, and
+any `sitecustomize.py` that names the payload. It also checks for the marker
+files, `PRIVCOLLECT_ACTIVE`, this user's processes, and the images' digests.
+Any trace stops the whole run.
+
+Finding nothing doesn't show the machine is clean, so the script lists the
+directories it searched and what it didn't check:
+
+- filesystems mounted below those directories, including network mounts, which
+  `find -xdev` stays off;
+- directories it couldn't read, other directories and users, system Python,
+  and files inside containers;
+- Docker images, when there is no `docker` or it can't reach the daemon, and
+  other container engines;
+- pip's HTTP cache, which stores downloads under hashed names, so a cached
+  wheel can't be found by name (the script doesn't open archives);
+- the past: an uninstalled package or a cleaned cache leaves nothing to find,
+  but credentials taken while it was installed are still gone.
+
+If 1.107.0 or one of its images was ever installed on a machine, treat its
+credentials as stolen whatever the check finds.
 
 - Advisory: <https://docs.litellm.ai/blog/security-incident-oct-21-2026>
 - Indicators: <https://github.com/BerriAI/litellm/issues/47826>

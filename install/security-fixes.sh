@@ -5,27 +5,33 @@
 # nvm, Docker, passwordless sudo, an env directory) is skipped. Runs under
 # bash 3.2+.
 #
+# The steps run in this order (see main), each gated on the ones before:
+# - Looks for LiteLLM 1.107.0 first, without starting Python or the runtimes
+#   below, and stops at once on any trace of it: its package, startup hooks,
+#   marker files, daemon or Docker image. A clean result covers only the
+#   places it lists, not the whole machine.
 # - Saves a trust store without the roots above the compromised intermediates,
 #   or any certificate with one of their keys, as $DATA/configs/ca-bundle.pem:
 #   a link to the system bundle when it's already clean, otherwise a filtered
 #   copy. Every forged chain in install/emudhra-chains must fail to verify
-#   against it, offline, for want of an issuer; otherwise this fails and setup
-#   stops. .bashrc.d/10-ca-bundle.sh points OpenSSL, curl and Python
-#   (requests, pip, uv) at it, with an empty CA directory so the system's
-#   directory can't add the roots back. Delete the file to go back to each
-#   tool's own store.
+#   against it, offline, for want of an issuer; otherwise nothing below
+#   downloads anything, this fails and setup stops. .bashrc.d/10-ca-bundle.sh
+#   points OpenSSL, curl and Python (requests, pip, uv) at it, with an empty
+#   CA directory so the system's directory can't add the roots back. Delete
+#   the file to go back to each tool's own store.
 # - Upgrades the system's ca-certificates when it still has those roots and
-#   sudo needs no password, except on the lab servers. Upgrades Homebrew's,
-#   and rebuilds its generated bundle if the upgrade leaves it empty.
+#   sudo needs no password, except on the lab servers. The package manager
+#   checks the package's signature, so this runs before the store is checked.
+#   With a checked store, upgrades Homebrew's, and rebuilds its generated
+#   bundle if the upgrade leaves it empty.
 # - Lists Node, uv, Bun, Deno, pixi, conda, Claude Code and Java installs that
 #   still trust the compromised intermediates. They keep their own roots, so
 #   the bundle doesn't reach them.
-# - Updates Tailscale older than 1.104.2 where it's already installed (see
-#   tailscale_update), and checks that the running daemon is updated too.
-# - Fails on any trace of LiteLLM 1.107.0: the package, its startup hooks,
-#   its marker files, its daemon, or its Docker image.
+# - With a checked store, updates Tailscale older than 1.104.2 where it's
+#   already installed (see tailscale_update), and checks that the running
+#   daemon is updated too.
 # - Removes pip trusted-host settings, which turn off certificate checks for
-#   an index, and points npm at the checked bundle.
+#   an index, and with a checked store points npm at it.
 # - Removes links on the PATH to missing files under /tmp, where any user
 #   could create them.
 # - Takes group and other access off credential files and the directories
@@ -69,6 +75,12 @@ BACKUP=${XDG_STATE_HOME:-$HOME/.local/state}/configs/config-backups/security-fix
 TMP=$(mktemp -d) || exit 1
 trap 'rm -rf "$TMP"' EXIT
 failed=
+
+# Did STEP fail earlier in this run?
+step_failed() { # STEP
+  case " $failed " in *" $1 "*) return 0 ;; esac
+  return 1
+}
 
 # The system's copy of COMMAND, ahead of ones from conda or Homebrew that may
 # be broken, old, or carry their own stores.
@@ -244,10 +256,10 @@ homebrew() {
   [ -n "$brew" ] && "$brew" list --versions ca-certificates >/dev/null 2>&1 || return 0
   echo "== Homebrew ca-certificates"
   # Without a checked store, brew would fetch formulae over the old one.
-  case " $failed " in *" trust-store "*)
-    echo "Skipping, because the trust store check failed"
-    return ;;
-  esac
+  if step_failed trust-store; then
+    echo "Skipped the upgrade, because the trust store check failed" >&2
+    return
+  fi
   # Upgrade only ca-certificates, not the many formulae that depend on it, and
   # leave the rest of Homebrew uncleaned.
   if "$brew" update --quiet >/dev/null &&
@@ -449,6 +461,15 @@ tailscale_update() {
     fi
     sudo="sudo -n"
   fi
+  # Both ways download, with the store this run couldn't check or with
+  # Homebrew's, which failed its own check.
+  if step_failed trust-store; then
+    echo "Skipped the update, because the trust store check failed; update Tailscale to $TAILSCALE_FIXED or later once it passes" >&2
+    return
+  elif [ -n "$brew" ] && step_failed homebrew; then
+    echo "Skipped brew upgrade tailscale, because Homebrew's own trust store failed its check" >&2
+    return
+  fi
   had_daemon=$daemon
   if [ -n "$brew" ]; then
     "$brew" update --quiet >/dev/null &&
@@ -483,6 +504,7 @@ tailscale_update() {
 }
 
 # No Python is started: in an infected environment, that runs the payload.
+# main runs this before anything downloads or runs the runtimes.
 litellm() {
   echo "== LiteLLM 1.107.0"
   # Environments and caches, the storage drive on hosts that have one, and
@@ -490,6 +512,8 @@ litellm() {
   storage=${XDG_DATA_HOME:+${XDG_DATA_HOME%/.local/share}}
   [ "$storage" = "$HOME" ] || [ "$storage" = "${XDG_DATA_HOME-}" ] && storage=
   : > "$TMP/scanned"
+  : > "$TMP/unreadable"
+  unchecked=
   found=$(
     for dir in "$HOME/.cache" "${XDG_CACHE_HOME-}" "$DATA" "$HOME/.local" "$HOME/.env" "$HOME/.venv" \
       "$HOME/miniconda3" "$HOME/anaconda3" "$HOME/miniforge3" "$HOME/mambaforge" "$HOME/micromamba" \
@@ -500,7 +524,7 @@ litellm() {
       # -xdev keeps it off network mounts under these directories.
       find "$dir" -xdev \( -name .git -o -name node_modules \) -prune -o \
         \( -name 'litellm-1.107.0*' -o -path '*/litellm/1.107.0*' -o -name cook.pth -o -name cook.py \
-        -o -name 'cook.*.pyc' \) -print 2>/dev/null
+        -o -name 'cook.*.pyc' \) -print 2>/dev/null || echo "$dir" >> "$TMP/unreadable"
       # sitecustomize.py is often legitimate; only the payload's names these.
       find "$dir" -xdev \( -name .git -o -name node_modules \) -prune -o \
         \( -name sitecustomize.py -o -name 'sitecustomize.*.pyc' \) -print 2>/dev/null |
@@ -519,7 +543,10 @@ PRIVCOLLECT_ACTIVE is set in this environment"
   daemons=$(ps -u "$(id -u)" -o pid= -o args= 2>/dev/null | grep -E 'remote_code_loader|cook\.py' | grep -v grep)
   [ -n "$daemons" ] && found="$found
 $daemons"
-  if command -v docker >/dev/null; then
+  if ! command -v docker >/dev/null; then
+    unchecked="$unchecked
+  Docker images: no docker command here (Podman, containerd and other users' daemons aren't checked either)"
+  else
     if images=$(docker images --digests --no-trunc --format '{{.Repository}}:{{.Tag}} {{.Digest}}' 2>/dev/null); then
       hit=$(for digest in $LITELLM_DIGESTS; do echo "$images" | grep "sha256:$digest"; done)
       [ -n "$hit" ] && found="$found
@@ -528,7 +555,8 @@ Docker image $hit"
       [ -n "$containers" ] && echo "Check whether these LiteLLM containers ran the image above on 21 October:
 $(echo "$containers" | sed 's/^/  /')"
     else
-      echo "Could not list Docker images (no access to the daemon), so they weren't checked"
+      unchecked="$unchecked
+  Docker images: could not list them (no access to the daemon)"
     fi
   fi
   found=$(echo "$found" | sed '/^$/d')
@@ -537,9 +565,25 @@ $(echo "$containers" | sed 's/^/  /')"
     echo "$found" | sed 's/^/  /' >&2
     echo "Don't run python or pip in those environments. Revoke this machine's credentials from another machine, then rebuild them." >&2
     failed="$failed litellm"
-  else
-    echo "No traces found"
+    return
   fi
+  while read -r dir; do
+    unchecked="$unchecked
+  Parts of $dir: no permission to read them"
+  done < "$TMP/unreadable"
+  if [ -s "$TMP/scanned" ]; then
+    echo "No known indicators in this user's processes, /tmp, and these directories:"
+    sed 's/^/  /' "$TMP/scanned"
+  else
+    echo "No known indicators in this user's processes and /tmp; none of the environment and cache directories it looks in exist here"
+  fi
+  # What this can't see, so a clean result isn't read as a clean machine.
+  echo "Not checked, so this is not a clean bill of health:$unchecked
+  Other filesystems mounted under those directories, including network mounts
+  Other directories and users, system Python, and files inside containers
+  pip's HTTP cache, which stores downloads under hashed names
+  Whether the payload ran before and was since removed, by an uninstall or a cleaned cache
+If litellm 1.107.0 or one of its images was ever installed here, treat this machine's credentials as stolen whatever this finds."
 }
 
 # pip skips certificate checks entirely for a trusted-host index. Remove the
@@ -570,7 +614,8 @@ pip_config() {
 # file from its config. Point npm at the checked bundle unless something else
 # is set.
 npm_config() {
-  [ -s "$BUNDLE" ] || return 0
+  # A bundle left by an earlier run isn't checked by this one.
+  [ -s "$BUNDLE" ] && ! step_failed trust-store || return 0
   npmrc=${NPM_CONFIG_USERCONFIG:-$HOME/.npmrc}
   grep -qE '^(cafile|ca)[ \t]*=' "$npmrc" 2>/dev/null && return 0
   ls "${NVM_DIR:-$HOME/.nvm}"/versions/node/*/bin/npm >/dev/null 2>&1 || command -v npm >/dev/null || return 0
@@ -638,17 +683,28 @@ private_files() {
   fi
 }
 
-trust_store
-homebrew
-runtimes
-tailscale_update
-litellm
-pip_config
-npm_config
-tmp_links
-private_files
+main() {
+  # Package managers and runtimes can start the payload, so look for it
+  # before any of them runs.
+  litellm
+  if step_failed litellm; then
+    echo "Stopped before the trust store, updates and other fixes, so nothing was downloaded or run" >&2
+    exit 1
+  fi
+  # Homebrew, Tailscale and npm skip themselves if this fails.
+  trust_store
+  homebrew
+  runtimes
+  tailscale_update
+  pip_config
+  npm_config
+  tmp_links
+  private_files
 
-if [ -n "$failed" ]; then
-  echo "Security fixes failed:$failed" >&2
-  exit 1
-fi
+  if [ -n "$failed" ]; then
+    echo "Security fixes failed:$failed" >&2
+    exit 1
+  fi
+}
+
+main
