@@ -63,6 +63,26 @@ Unrelated skills and agent settings stay in place. Keep the skills checkout
 while links point to it; rerunning setup updates it and links new skills.
 The tool installer also installs and updates `litget` for the research skill.
 
+Before downloading anything, the installer runs `install/security-fixes.sh` for
+October 2026's eMudhra CA key compromise and LiteLLM 1.107.0 release. It gives
+setup and shells a trust store that rejects the forged certificates, updates
+the stores and tools that can be updated without a password, removes pip
+`trusted-host` settings, makes credential and agent directories owner-only, and
+stops setup if the store still trusts the forged chains or the LiteLLM payload
+is present. [install/security-fixes.md](install/security-fixes.md) describes
+each fix and its sources, and how to undo them.
+
+Where Tailscale is installed and older than 1.104.2, which distrusts the
+compromised intermediates itself, the script updates it with
+`sudo -n tailscale update --yes`, or `brew upgrade tailscale` for Homebrew's.
+It then checks that both the CLI and the running `tailscaled` report 1.104.2
+or later, and stops setup if the update fails or the old daemon is still
+running. If the CLI is already patched but the daemon is old, it prints restart
+instructions. An unreadable daemon version is reported as unverified. It only
+prints what to do for the Mac app, on the lab servers, and when sudo needs a
+password. Package upgrades can briefly interrupt Tailscale connections.
+`python3 tests/check-tailscale-update.py` checks this against stub commands.
+
 Neovim's `lazy-lock.json` is local to each machine and ignored by Git. Before
 pulling the commit that first removes the tracked lockfile on another machine,
 preserve that machine's copy:

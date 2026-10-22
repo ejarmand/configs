@@ -21,6 +21,8 @@ mkdir -p "${XDG_DATA_HOME:-$HOME/.local/share}" \
 
 phase='tool installation'
 bash "$repo/install-tools.sh"
+# The skills clone is over HTTPS; use the trust store the installer checked.
+. "$repo/install/ca-env.sh"
 phase='skills update'
 export SKILLS_REPO=${SKILLS_REPO:-$HOME/projects/skills}
 if [[ -e $SKILLS_REPO/.git ]]; then

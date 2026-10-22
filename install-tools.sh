@@ -548,6 +548,11 @@ if [ "${1-}" = --codex-sandbox ]; then
   exit $?
 fi
 
+# Check the trust store before downloading anything, and download with it.
+/bin/bash "$CONFIGS_REPO/install/security-fixes.sh" || exit 1
+# shellcheck source=install/ca-env.sh
+. "$CONFIGS_REPO/install/ca-env.sh"
+
 failed=
 tools="neovim codex opencode starship pixi uv node litget rg gh claude muse cursor"
 # 05-machines.sh sets this on hosts that shouldn't run agent CLIs.
