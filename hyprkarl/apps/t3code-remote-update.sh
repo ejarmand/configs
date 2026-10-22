@@ -155,10 +155,22 @@ EOF
   elif [ "$linger" != yes ]; then
     echo "lingering is '$linger'; the real run enables it first and stops if that needs admin (then run: sudo loginctl enable-linger $(id -un))"
   fi
+  # Download with the trust store the configs repo's install/security-fixes.sh
+  # checked on this host, when there is one; the default store may still
+  # trust the compromised eMudhra intermediates.
+  ca=${XDG_DATA_HOME:-$HOME/.local/share}/configs
+  if [ -s "$ca/ca-bundle.pem" ]; then
+    export SSL_CERT_FILE="$ca/ca-bundle.pem" SSL_CERT_DIR="$ca/no-ca-dir"
+    ca_args="--cacert $ca/ca-bundle.pem"
+    [ -d "$ca/no-ca-dir" ] && ca_args="$ca_args --capath $ca/no-ca-dir"
+  else
+    ca_args=
+  fi
   if command -v curl >/dev/null; then
-    fetch() { curl -fsSL --connect-timeout 30 --max-time 300 "$1" -o "$2"; }
+    # shellcheck disable=SC2086
+    fetch() { curl -fsSL --connect-timeout 30 --max-time 300 $ca_args "$1" -o "$2"; }
   elif command -v wget >/dev/null; then
-    fetch() { wget -q --timeout=30 --tries=2 "$1" -O "$2"; }
+    fetch() { wget -q --timeout=30 --tries=2 ${ca_args:+--ca-certificate="$ca/ca-bundle.pem"} "$1" -O "$2"; }
   else
     fail "needs curl or wget to download the release"
   fi
