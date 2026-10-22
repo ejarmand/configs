@@ -155,13 +155,29 @@ EOF
   elif [ "$linger" != yes ]; then
     echo "lingering is '$linger'; the real run enables it first and stops if that needs admin (then run: sudo loginctl enable-linger $(id -un))"
   fi
-  if command -v curl >/dev/null; then
-    fetch() { curl -fsSL --connect-timeout 30 --max-time 300 "$1" -o "$2"; }
-  elif command -v wget >/dev/null; then
-    fetch() { wget -q --timeout=30 --tries=2 "$1" -O "$2"; }
-  else
-    fail "needs curl or wget to download the release"
-  fi
+  # Downloads use only the trust store the configs repo's
+  # install/security-fixes.sh checked on this host, with its empty CA
+  # directory; the default store may still trust the compromised eMudhra
+  # intermediates. -q and --no-config come first so no curlrc or wgetrc can
+  # add another store or turn checks off.
+  ca=${XDG_DATA_HOME:-$HOME/.local/share}/configs
+  cafile=$ca/ca-bundle.pem cadir=$ca/no-ca-dir
+  checked_store() {
+    if [ -s "$cafile" ] && [ -d "$cadir" ] && [ -z "$(ls -A "$cadir" 2>/dev/null)" ]; then
+      return 0
+    fi
+    echo "no checked trust store here: needs $cafile and an empty $cadir. Run the configs repo's setup.sh or config-update on this host (it runs install/security-fixes.sh), then retry."
+    return 1
+  }
+  fetch() {
+    if command -v curl >/dev/null; then
+      SSL_CERT_FILE=$cafile SSL_CERT_DIR=$cadir curl -q -fsSL --connect-timeout 30 --max-time 300 \
+        --cacert "$cafile" --capath "$cadir" "$1" -o "$2"
+    else
+      SSL_CERT_FILE=$cafile SSL_CERT_DIR=$cadir wget --no-config -q --timeout=30 --tries=2 \
+        --ca-certificate="$cafile" --ca-directory="$cadir" "$1" -O "$2"
+    fi
+  }
 
   # A rerun (hk-app config-update) must not restart a service that is done.
   pid=$(field pid)
@@ -176,7 +192,12 @@ EOF
   fi
 
   if [ "$mode" = dry ]; then
-    ready && echo "t3@$version already downloaded" || echo "would download t3@$version"
+    if ready; then
+      echo "t3@$version already downloaded"
+    else
+      echo "would download t3@$version"
+      checked_store || echo "so the real run would stop here"
+    fi
     echo "would stop the servers above and run t3@$version as t3code.service"
     exit 0
   fi
@@ -205,6 +226,8 @@ EOF
       *) fail "no t3 release archive for $(uname -m)" ;;
     esac
     # Same archive and layout the desktop's run-t3.sh installs.
+    command -v curl >/dev/null || command -v wget >/dev/null || fail "needs curl or wget to download the release"
+    why=$(checked_store) || fail "$why"
     archive=t3-$version-linux-$arch.tar.gz
     url=https://github.com/pingdotgg/t3code/releases/download/v$version
     step "downloading $url/$archive"

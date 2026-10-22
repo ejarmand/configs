@@ -63,6 +63,31 @@ Unrelated skills and agent settings stay in place. Keep the skills checkout
 while links point to it; rerunning setup updates it and links new skills.
 The tool installer also installs and updates `litget` for the research skill.
 
+Before downloading anything, the installer runs `install/security-fixes.sh` for
+October 2026's eMudhra CA key compromise and LiteLLM 1.107.0 release. It first
+looks for the LiteLLM payload without starting Python, and stops at once if it
+finds any. It then gives setup and shells a trust store that rejects the forged
+certificates, updates the stores and tools that can be updated without a
+password, removes pip `trusted-host` settings, and makes credential and agent
+directories owner-only. If the store still trusts the forged chains, it skips
+every update that would download and setup stops. A clean LiteLLM result lists
+what was checked and what wasn't; it isn't proof the machine is clean.
+[install/security-fixes.md](install/security-fixes.md) describes each fix, its
+sources and limits, and how to undo them.
+
+Where Tailscale is installed and older than 1.104.2, which distrusts the
+compromised intermediates itself, the script updates it with
+`sudo -n tailscale update --yes`, or `brew upgrade tailscale` for Homebrew's.
+It then checks that both the CLI and the running `tailscaled` report 1.104.2
+or later, and stops setup if the update fails or the old daemon is still
+running. It doesn't update when the trust store check failed. If the CLI is
+already patched but the daemon is old, it prints restart instructions. An unreadable daemon version is reported as unverified. It only
+prints what to do for the Mac app, on the lab servers, and when sudo needs a
+password. Package upgrades can briefly interrupt Tailscale connections.
+`python3 tests/check-tailscale-update.py` checks this against stub commands, and
+`python3 tests/check-security-fixes.py` checks the rest of the script and the
+order of its steps.
+
 Neovim's `lazy-lock.json` is local to each machine and ignored by Git. Before
 pulling the commit that first removes the tracked lockfile on another machine,
 preserve that machine's copy:
@@ -84,7 +109,7 @@ They also hold my personal [Hyprkarl](https://github.com/ejarmand/hyprkarl) sett
 - `uwsm/env.local`: session environment (secrets go in the untracked `~/.config/uwsm/env.secrets`)
 - `ghostty/local.conf`: Ghostty overrides
 - `xdg-terminals.list`: default terminal
-- `hyprkarl/apps/t3code.conf`: `hk-app` recipe for T3 Code; on install it runs `t3code-remote-update.sh`, which moves every SSH host running T3 onto a background service at the same release so a desktop restart no longer stops it. It skips the lab servers (see Storage machines)
+- `hyprkarl/apps/t3code.conf`: `hk-app` recipe for T3 Code; on install it runs `t3code-remote-update.sh`, which moves every SSH host running T3 onto a background service at the same release so a desktop restart no longer stops it. Each host downloads the release only with the trust store `install/security-fixes.sh` checked there, and refuses to download without it; run setup on that host first. It skips the lab servers (see Storage machines)
 
 `setup.sh` applies these overrides where Hyprkarl is installed.
 

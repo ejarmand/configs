@@ -1,3 +1,7 @@
 .codex
 lazy-lock.json
 lazy.lock
+# Per-machine security inventories and the exposure report describe how to
+# reach and exploit hosts; keep them local because this repo is public.
+research/machine-inventory-*.md
+research/emudhra-exposure-and-risk.md

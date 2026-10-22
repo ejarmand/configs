@@ -65,7 +65,8 @@ latest_tag() {
 
 # Check FILE against its line in SUMS (or SUMS' only hash).
 check_sha256() {
-  want=$(awk -v f="${1##*/}" '{ sub(/\r$/, "") } NF == 1 || $2 == f || $2 == "*" f { print $1; exit }' "$2")
+  want=$(awk -v f="${1##*/}" '{ sub(/\r$/, "") } $2 == f || $2 == "*" f { print $1; found = 1; exit }
+    NF { lines++; only = $1 } END { if (!found && lines == 1) print only }' "$2")
   if [ $os = macos ]; then got=$(shasum -a 256 "$1"); else got=$(sha256sum "$1"); fi
   [ -n "$want" ] && [ "${got%% *}" = "$want" ] || fail "Checksum mismatch for ${1##*/}"
 }
@@ -546,6 +547,11 @@ if [ "${1-}" = --codex-sandbox ]; then
   ( set -e; codex_sandbox )
   exit $?
 fi
+
+# Check the trust store before downloading anything, and download with it.
+/bin/bash "$CONFIGS_REPO/install/security-fixes.sh" || exit 1
+# shellcheck source=install/ca-env.sh
+. "$CONFIGS_REPO/install/ca-env.sh"
 
 failed=
 tools="neovim codex opencode starship pixi uv node litget rg gh claude muse cursor"
