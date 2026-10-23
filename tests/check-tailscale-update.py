@@ -129,14 +129,14 @@ class TailscaleChecks(unittest.TestCase):
         self.assertNotIn("update --yes", self.calls())
         self.assertIn("failed=[]", out)
 
-    def test_lab_servers_never_try_sudo(self):
-        self.install("1.98.0", daemon="1.98.0")
+    def test_lab_servers_update_when_sudo_is_available(self):
+        self.install("1.98.0", daemon="1.98.0", new_client="1.104.2", new_daemon="1.104.2")
         (self.state / "sudo-ok").touch()
         self.stub("sudo", SUDO)
         self.env["CONFIGS_NO_AGENTS"] = "1"
         out = self.run_check()
-        self.assertIn("Ask the server's admins", out)
-        self.assertNotIn("sudo", self.calls())
+        self.assertIn("Now client 1.104.2, daemon 1.104.2", out)
+        self.assertIn("update --yes", self.calls())
         self.assertIn("failed=[]", out)
 
     def test_failed_trust_store_skips_update(self):

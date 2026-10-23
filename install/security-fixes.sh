@@ -2,7 +2,8 @@
 # Fixes for October 2026's eMudhra CA key compromise and the malicious LiteLLM
 # 1.107.0 release. install-tools.sh runs this before downloading anything and
 # stops if it fails. Safe to rerun; anything a machine doesn't have (Homebrew,
-# nvm, Docker, passwordless sudo, an env directory) is skipped. Runs under
+# nvm, Docker, an env directory) is skipped. Sudo prompts when needed; declined
+# or unavailable privileges leave the affected step for later. Runs under
 # bash 3.2+.
 #
 # The steps run in this order (see main), each gated on the ones before:
@@ -20,7 +21,7 @@
 #   CA directory so the system's directory can't add the roots back. Delete
 #   the file to go back to each tool's own store.
 # - Upgrades the system's ca-certificates when it still has those roots and
-#   sudo needs no password, except on the lab servers. The package manager
+#   sudo is available, prompting in a terminal when needed. The package manager
 #   checks the package's signature, so this runs before the store is checked.
 #   With a checked store, upgrades Homebrew's, and rebuilds its generated
 #   bundle if the upgrade leaves it empty.
@@ -42,7 +43,7 @@
 
 CONFIGS_REPO=${BASH_SOURCE[0]%/*}/..
 # The machine settings move the data directory to a storage drive on some
-# hosts and mark the lab servers, so a run outside setup needs them too.
+# hosts, so a run outside setup needs them too. Hostnames don't decide sudo access.
 bashrc_prepend_path() { PATH="$1:$PATH"; }
 if [ -r "$CONFIGS_REPO/.bashrc.d/05-machines.sh" ]; then
   # shellcheck source=../.bashrc.d/05-machines.sh
@@ -75,6 +76,32 @@ BACKUP=${XDG_STATE_HOME:-$HOME/.local/state}/configs/config-backups/security-fix
 TMP=$(mktemp -d) || exit 1
 trap 'rm -rf "$TMP"' EXIT
 failed=
+SUDO=()
+sudo_declined=
+
+# Authenticate only for a step that needs privileges. Never elevate the whole
+# script or its directory scans. Let sudo read the password from the terminal;
+# unattended runs use cached/passwordless access only. Don't nag after a decline.
+sudo_ready() { # REASON
+  SUDO=()
+  [ "$(id -u)" = 0 ] && return 0
+  command -v sudo >/dev/null || return 1
+  [ -z "$sudo_declined" ] || return 1
+  SUDO=(sudo -n)
+  sudo -n true 2>/dev/null && return 0
+  [ -t 2 ] || return 1
+  echo "Sudo is needed to $1. Authenticate at the sudo prompt, or cancel to skip privileged steps." >&2
+  # Ctrl-C at sudo's prompt declines elevation rather than aborting setup.
+  trap ':' INT
+  if sudo -v; then
+    trap - INT
+    return 0
+  fi
+  trap - INT
+  sudo_declined=1
+  echo "Sudo was not authorized; continuing without privileged steps." >&2
+  return 1
+}
 
 # Did STEP fail earlier in this run?
 step_failed() { # STEP
@@ -162,24 +189,23 @@ check_chains() { # CAFILE
 }
 
 upgrade_system_store() {
-  # On the lab servers sudo isn't ours to try, and macOS updates its store
-  # with the OS.
+  # macOS updates its store with the OS.
   if [ "$(uname -s)" = Darwin ]; then
     echo "macOS's /etc/ssl/cert.pem still has the compromised roots; keep macOS updated, and use the copy without them meanwhile"
     return
-  elif [ -n "${CONFIGS_NO_AGENTS-}" ] || ! command -v sudo >/dev/null || ! sudo -n true 2>/dev/null; then
+  elif ! sudo_ready "update the system CA certificates"; then
     echo "The system's ca-certificates still has the compromised roots; upgrade it when you can (it needs sudo)"
     return
   fi
   if command -v apt-get >/dev/null; then
     timeouts="-o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 -o Acquire::Retries=0"
     # shellcheck disable=SC2086
-    sudo -n apt-get $timeouts update -qq &&
-      sudo -n apt-get $timeouts install -y -qq --only-upgrade ca-certificates
+    "${SUDO[@]}" apt-get $timeouts update -qq &&
+      "${SUDO[@]}" apt-get $timeouts install -y -qq --only-upgrade ca-certificates
   elif command -v dnf >/dev/null; then
-    sudo -n dnf upgrade -y -q --setopt=timeout=30 ca-certificates
+    "${SUDO[@]}" dnf upgrade -y -q --setopt=timeout=30 ca-certificates
   elif command -v yum >/dev/null; then
-    sudo -n yum update -y -q --setopt=timeout=30 ca-certificates
+    "${SUDO[@]}" yum update -y -q --setopt=timeout=30 ca-certificates
   else
     false
   fi || echo "Could not upgrade the system's ca-certificates"
@@ -373,9 +399,9 @@ runtimes() {
       clean_bundle "$TMP/java.pem" "$TMP/java-clean.pem"
       [ "$removed" -gt 0 ] || continue
       # Debian and Ubuntu rebuild it from the (patched) system store.
-      if [ -z "${CONFIGS_NO_AGENTS-}" ] && command -v update-ca-certificates >/dev/null &&
-        command -v sudo >/dev/null && sudo -n true 2>/dev/null &&
-        sudo -n update-ca-certificates -f >/dev/null 2>&1 &&
+      if command -v update-ca-certificates >/dev/null &&
+        sudo_ready "rebuild Java's system CA certificates" &&
+        "${SUDO[@]}" update-ca-certificates -f >/dev/null 2>&1 &&
         "$keytool" -list -rfc -cacerts -storepass changeit > "$TMP/java.pem" 2>/dev/null; then
         clean_bundle "$TMP/java.pem" "$TMP/java-clean.pem"
         [ "$removed" = 0 ] && { echo "Rebuilt Java's cacerts from the system store"; continue; }
@@ -411,8 +437,8 @@ tailscale_versions() {
 }
 
 # Update Tailscale with the way it was installed: Homebrew, or `tailscale
-# update` (which runs the system package manager) as root without a password
-# prompt. The Mac app and the lab servers' copies are left to their owners.
+# update` (which runs the system package manager), prompting for sudo as needed.
+# The Mac app is left to its updater.
 # Machines without Tailscale are skipped; it's never installed.
 tailscale_update() {
   ts=$(command -v tailscale) || ts=/Applications/Tailscale.app/Contents/MacOS/Tailscale
@@ -445,21 +471,9 @@ tailscale_update() {
   fi
 
   echo "Tailscale $client predates the built-in certificate fix in $TAILSCALE_FIXED"
-  sudo=
-  if [ -n "${CONFIGS_NO_AGENTS-}" ]; then
-    echo "Ask the server's admins to update Tailscale to $TAILSCALE_FIXED or later" >&2
-    return
-  elif [ -n "$brew" ]; then
-    :
-  elif [ "$(uname -s)" = Darwin ]; then
+  if [ -z "$brew" ] && [ "$(uname -s)" = Darwin ]; then
     echo "Update the Tailscale app to $TAILSCALE_FIXED or later from the App Store or its Check for Updates item" >&2
     return
-  elif [ "$(id -u)" != 0 ]; then
-    if ! command -v sudo >/dev/null || ! sudo -n true 2>/dev/null; then
-      echo "Run sudo tailscale update to update it (it needs root)" >&2
-      return
-    fi
-    sudo="sudo -n"
   fi
   # Both ways download, with the store this run couldn't check or with
   # Homebrew's, which failed its own check.
@@ -470,12 +484,16 @@ tailscale_update() {
     echo "Skipped brew upgrade tailscale, because Homebrew's own trust store failed its check" >&2
     return
   fi
+  if [ -z "$brew" ] && ! sudo_ready "update Tailscale"; then
+    echo "Run sudo tailscale update to update it later (sudo was unavailable or declined)" >&2
+    return
+  fi
   had_daemon=$daemon
   if [ -n "$brew" ]; then
     "$brew" update --quiet >/dev/null &&
       HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK=1 HOMEBREW_NO_INSTALL_CLEANUP=1 "$brew" upgrade tailscale
   else
-    $sudo "$ts" update --yes
+    "${SUDO[@]}" "$ts" update --yes
   fi || {
     echo "Could not update Tailscale; update it to $TAILSCALE_FIXED or later by hand" >&2
     failed="$failed tailscale"
@@ -503,6 +521,14 @@ tailscale_update() {
   fi
 }
 
+# Query only the selected Unix socket, without inherited remote/TLS settings.
+# docker_cmd may add sudo for the system socket; only image/container metadata
+# is requested, never container files, mounts, environment variables or logs.
+docker_metadata() (
+  unset DOCKER_CONTEXT DOCKER_HOST DOCKER_TLS_VERIFY DOCKER_CERT_PATH
+  "${docker_cmd[@]}" "$@"
+)
+
 # No Python is started: in an infected environment, that runs the payload.
 # main runs this before anything downloads or runs the runtimes.
 litellm() {
@@ -514,6 +540,7 @@ litellm() {
   : > "$TMP/scanned"
   : > "$TMP/unreadable"
   unchecked=
+  scan_uid=$(id -u)
   found=$(
     for dir in "$HOME/.cache" "${XDG_CACHE_HOME-}" "$DATA" "$HOME/.local" "$HOME/.env" "$HOME/.venv" \
       "$HOME/miniconda3" "$HOME/anaconda3" "$HOME/miniforge3" "$HOME/mambaforge" "$HOME/micromamba" \
@@ -522,11 +549,13 @@ litellm() {
       [ -n "$dir" ] && [ -d "$dir" ] || continue
       echo "$dir" >> "$TMP/scanned"
       # -xdev keeps it off network mounts under these directories.
-      find "$dir" -xdev \( -name .git -o -name node_modules \) -prune -o \
+      find "$dir" -xdev \( -name .git -o -name node_modules -o \( -type d ! -user "$scan_uid" \) \) -prune -o \
+        -user "$scan_uid" \
         \( -name 'litellm-1.107.0*' -o -path '*/litellm/1.107.0*' -o -name cook.pth -o -name cook.py \
         -o -name 'cook.*.pyc' \) -print 2>/dev/null || echo "$dir" >> "$TMP/unreadable"
       # sitecustomize.py is often legitimate; only the payload's names these.
-      find "$dir" -xdev \( -name .git -o -name node_modules \) -prune -o \
+      find "$dir" -xdev \( -name .git -o -name node_modules -o \( -type d ! -user "$scan_uid" \) \) -prune -o \
+        -user "$scan_uid" \
         \( -name sitecustomize.py -o -name 'sitecustomize.*.pyc' \) -print 2>/dev/null |
         while read -r file; do
           grep -aqE 'remote_code_loader|litellm\.dev|PRIVCOLLECT|pc_once' "$file" && echo "$file"
@@ -543,15 +572,50 @@ PRIVCOLLECT_ACTIVE is set in this environment"
   daemons=$(ps -u "$(id -u)" -o pid= -o args= 2>/dev/null | grep -E 'remote_code_loader|cook\.py' | grep -v grep)
   [ -n "$daemons" ] && found="$found
 $daemons"
-  if ! command -v docker >/dev/null; then
+  if [ -n "$found" ]; then
+    : # Don't request more privileges once filesystem/process evidence is found.
+  elif ! docker_cli=$(command -v docker); then
     unchecked="$unchecked
   Docker images: no docker command here (Podman, containerd and other users' daemons aren't checked either)"
   else
-    if images=$(docker images --digests --no-trunc --format '{{.Repository}}:{{.Tag}} {{.Digest}}' 2>/dev/null); then
+    # Context inspection reads local configuration; it doesn't connect.
+    if [ -n "${DOCKER_CONTEXT-}" ]; then
+      docker_endpoint=$("$docker_cli" context inspect "$DOCKER_CONTEXT" --format '{{.Endpoints.docker.Host}}' 2>/dev/null)
+    elif [ -n "${DOCKER_HOST-}" ]; then
+      docker_endpoint=$DOCKER_HOST
+    else
+      docker_endpoint=$("$docker_cli" context inspect --format '{{.Endpoints.docker.Host}}' 2>/dev/null)
+    fi
+    docker_ok=
+    case $docker_endpoint in
+      unix:///*)
+        docker_cmd=("$docker_cli" --host "$docker_endpoint")
+        if images=$(docker_metadata images --digests --no-trunc --format '{{.Repository}}:{{.Tag}} {{.Digest}}' 2>/dev/null); then
+          docker_ok=1
+        else
+          # Elevate only for the system socket, never another user's socket.
+          case $docker_endpoint in
+            unix:///var/run/docker.sock | unix:///run/docker.sock)
+              if [ -S "${docker_endpoint#unix://}" ] && sudo_ready "check local Docker image digests and container metadata"; then
+                docker_cmd=("${SUDO[@]}" "$docker_cli" --host "$docker_endpoint")
+                images=$(docker_metadata images --digests --no-trunc --format '{{.Repository}}:{{.Tag}} {{.Digest}}' 2>/dev/null) && docker_ok=1
+              fi ;;
+          esac
+        fi ;;
+      *) unchecked="$unchecked
+  Docker context: remote or unknown endpoint; only local Unix sockets are checked" ;;
+    esac
+    if [ -n "$docker_ok" ]; then
       hit=$(for digest in $LITELLM_DIGESTS; do echo "$images" | grep "sha256:$digest"; done)
       [ -n "$hit" ] && found="$found
 Docker image $hit"
-      containers=$(docker ps -a --format '{{.ID}} {{.Image}} created {{.CreatedAt}}' 2>/dev/null | grep -i litellm)
+      if containers=$(docker_metadata ps -a --format '{{.ID}} {{.Image}} created {{.CreatedAt}}' 2>/dev/null); then
+        containers=$(echo "$containers" | grep -i litellm)
+      else
+        unchecked="$unchecked
+  Docker containers: could not list metadata"
+        containers=
+      fi
       [ -n "$containers" ] && echo "Check whether these LiteLLM containers ran the image above on 21 October:
 $(echo "$containers" | sed 's/^/  /')"
     else

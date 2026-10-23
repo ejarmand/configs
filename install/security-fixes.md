@@ -14,6 +14,16 @@ certificates or shows traces of the LiteLLM payload. Everything else it fixes
 when it can and reports when it can't, usually because the fix needs sudo.
 Fixed versions and indicators below were current on 2026-10-22.
 
+Run this as your normal user. When a step needs elevated access, it first
+tries cached or passwordless sudo, then prompts in a terminal if necessary.
+This applies on every host, including lab servers. Canceling the sudo prompt
+or failing authentication skips privileged steps for the rest of that run;
+the remaining checks continue. Without a terminal, it never prompts. Existing
+trust-check and malware failures still stop setup as described below.
+Only the individual system commands are elevated. Directory scans run as you,
+prune directories owned by other accounts, and inspect only your files and
+processes. The script does not scan other users' home directories with sudo.
+
 The steps run in this order, and a failure stops the ones that depend on it:
 
 1. LiteLLM: looks for the payload by name and content, without starting Python
@@ -104,8 +114,8 @@ the assumption that they were set on purpose.
 
 ### System and Homebrew stores
 
-The system's `ca-certificates` is upgraded with `sudo -n`, so never with a
-password prompt, and never on the lab servers or macOS. This runs before the
+The system's `ca-certificates` is upgraded with sudo, prompting when needed,
+on Linux hosts regardless of hostname. This runs before the
 store is checked, since the store it fixes is the one being checked; apt, dnf
 and yum check the package's signature with their own keys, not with TLS. macOS doesn't update
 `/etc/ssl/cert.pem` for this; Apple's own blocking of the intermediates was
@@ -124,8 +134,8 @@ installs older than their fixes, as given by the tracker: Node 22.23.4, 24.22.1
 and 26.12.1 (21 and below, 23 and 25 get no fix), uv 0.13.4, Bun 1.4.4, Deno
 2.9.8, pixi 0.82.1, conda 26.9.4, and Claude Code 2.1.303. `install-tools.sh`
 updates uv, pixi, Node's LTS and Claude Code right after. Java reads its own
-`cacerts`, which the system update doesn't always rebuild; with passwordless
-sudo the script runs `update-ca-certificates -f`.
+`cacerts`, which the system update doesn't always rebuild; with sudo access
+the script runs `update-ca-certificates -f`.
 
 The list is a warning, not a fix. Older versions installed alongside newer
 ones (other nvm versions, project environments, copies in tool directories)
@@ -141,8 +151,8 @@ start without pinning it, so an older client on a store that trusts the forged
 certificates can be pointed at a fake control server. The script updates older
 installs where it can and checks that the running daemon is updated too. It
 doesn't update when the trust store check failed, nor through Homebrew when
-Homebrew's own store failed its check. The Mac app, the lab servers' copies
-and machines where sudo needs a password are left for you to update; the script
+Homebrew's own store failed its check. The Mac app and machines where sudo
+is unavailable or declined are left for you to update; the script
 prints what to do and doesn't fail for them.
 
 - TS-2026-013: <https://tailscale.com/security-bulletins>
@@ -163,6 +173,12 @@ for `litellm-1.107.0` packages, `cook.pth`, `cook.py`, their `.pyc` files, and
 any `sitecustomize.py` that names the payload. It also checks for the marker
 files, `PRIVCOLLECT_ACTIVE`, this user's processes, and the images' digests.
 Any trace stops the whole run.
+
+Docker checks use the selected local Unix socket, never a remote endpoint.
+If access to the system Docker socket is denied, the script prompts for sudo
+and retries the image-digest and container-metadata queries. It doesn't
+inspect container files, mounts, environment variables or logs, and never
+elevates access to another user's rootless socket.
 
 Finding nothing doesn't show the machine is clean, so the script lists the
 directories it searched and what it didn't check:

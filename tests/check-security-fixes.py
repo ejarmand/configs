@@ -10,6 +10,7 @@ real ones, so nothing touches the network or the system.
 import os
 from pathlib import Path
 import shutil
+import socket
 import subprocess
 import tempfile
 import unittest
@@ -34,6 +35,14 @@ TAILSCALE = LOG + '''case "$*" in
 esac
 '''
 SUDO = LOG + '[ "$1" = -n ] || exit 1\nshift\n[ "$*" = true ] || exec "$@"\n'
+AUTH_SUDO = LOG + '''case "$*" in
+  "-n true") [ -e "$STATE/authenticated" ] ;;
+  "-v") [ ! -e "$STATE/declined" ] || exit 130
+    : > "$STATE/authenticated" ;;
+  *) [ "$1" = -n ] && [ -e "$STATE/authenticated" ] || exit 1
+    shift; export FIXTURE_ROOT=1; exec "$@" ;;
+esac
+'''
 
 
 def certs(path):
@@ -67,6 +76,7 @@ class SecurityFixesChecks(unittest.TestCase):
             os.symlink(shutil.which(name), self.bin / name)
         for name in STUBS:
             self.stub(name, LOG + ("exit 7\n" if name == "curl" else "exit 1\n"))
+        self.stub("docker", LOG + 'case "$1 $2" in "context inspect") echo unix:///var/run/docker.sock ;; *) exit 1 ;; esac\n')
         script = (REPO / "install/security-fixes.sh").read_text()
         # Keep the absolute Homebrew and Mac app paths inside the fixture too.
         for path in ("/home/linuxbrew/.linuxbrew/bin/brew", "/opt/homebrew/bin/brew", "/usr/local/bin/brew",
@@ -91,17 +101,37 @@ class SecurityFixesChecks(unittest.TestCase):
     def calls(self):
         return self.calls_file.read_text() if self.calls_file.exists() else ""
 
-    def run_steps(self, steps, ok=True, **env):
+    def run_steps(self, steps, ok=True, terminal=False, **env):
         # Only the fixture's commands, the repo's chains and its ca-env.sh,
         # whatever the real paths hold.
         body = (f'set --; . "{self.functions}"\n'
                 f'pick() {{ [ -x "{self.bin}/$1" ] && echo "{self.bin}/$1"; }}\n'
                 f'CHAINS="{CHAINS}" CONFIGS_REPO="{REPO}"\n{steps}\n'
                 '[ -z "$failed" ] || { echo "failed:$failed" >&2; exit 1; }\n')
-        result = subprocess.run([shutil.which("bash"), "-c", body], env={**self.env, **env}, text=True,
-                                capture_output=True)
-        self.assertEqual(result.returncode == 0, ok, result.stdout + result.stderr)
-        return result.stdout + result.stderr
+        master, slave = os.openpty() if terminal else (None, None)
+        try:
+            result = subprocess.run([shutil.which("bash"), "-c", body], env={**self.env, **env}, text=True,
+                                    stdout=subprocess.PIPE, stderr=slave if terminal else subprocess.PIPE,
+                                    timeout=30)
+            errors = result.stderr or ""
+            if terminal:
+                os.close(slave)
+                slave = None
+                while True:
+                    try:
+                        chunk = os.read(master, 65536)
+                    except OSError:
+                        break
+                    if not chunk:
+                        break
+                    errors += chunk.decode()
+            out = result.stdout + errors
+            self.assertEqual(result.returncode == 0, ok, out)
+            return out
+        finally:
+            for fd in (master, slave):
+                if fd is not None:
+                    os.close(fd)
 
     def write_bundle(self, name, blocks):
         path = self.root / name
@@ -188,7 +218,11 @@ class SecurityFixesChecks(unittest.TestCase):
         self.assertNotIn("Not checked", out)
 
     def test_litellm_docker_image_fails(self):
-        self.stub("docker", LOG + 'echo "litellm:main-latest sha256:1bbcb1443bc962e45f5aad53fe3d2c30600e0379715fb6c664cdd3ac126c339e"\n')
+        self.stub("docker", LOG + '''case "$1 $2" in
+  "context inspect") echo unix:///var/run/docker.sock ;;
+  *) echo "litellm:main-latest sha256:1bbcb1443bc962e45f5aad53fe3d2c30600e0379715fb6c664cdd3ac126c339e" ;;
+esac
+''')
         out = self.run_steps("litellm", ok=False)
         self.assertIn("Docker image litellm:main-latest", out)
 
@@ -287,6 +321,96 @@ class SecurityFixesChecks(unittest.TestCase):
         self.run_steps("private_files")
         self.assertEqual(ssh.stat().st_mode & 0o777, 0o700)
         self.assertEqual((ssh / "id_ed25519").stat().st_mode & 0o777, 0o600)
+
+    def test_sudo_prompts_in_terminal_and_reuses_authentication_on_lab_host(self):
+        self.stub("id", "echo 1000\n")
+        self.stub("sudo", AUTH_SUDO)
+        out = self.run_steps('sudo_ready "check certificates"; sudo_ready "update Tailscale"',
+                             terminal=True, CONFIGS_NO_AGENTS="1")
+        self.assertIn("Sudo is needed to check certificates", out)
+        self.assertEqual(self.calls().splitlines().count("sudo -v"), 1)
+
+    def test_declined_sudo_continues_without_repeated_prompts(self):
+        self.stub("id", "echo 1000\n")
+        self.stub("sudo", AUTH_SUDO)
+        (self.state / "declined").touch()
+        out = self.run_steps('sudo_ready "check certificates" || echo skipped; sudo_ready "update Tailscale" || echo continued',
+                             terminal=True)
+        self.assertIn("continued", out)
+        self.assertIn("continuing without privileged steps", out)
+        self.assertEqual(self.calls().splitlines().count("sudo -v"), 1)
+
+    def test_interrupt_at_sudo_prompt_continues(self):
+        self.stub("id", "echo 1000\n")
+        self.stub("sudo", LOG + 'if [ "$1" = -v ]; then kill -INT "$PPID"; exit 130; fi; exit 1\n')
+        out = self.run_steps('sudo_ready "check certificates" || echo continued', terminal=True)
+        self.assertIn("continued", out)
+        self.assertIn("continuing without privileged steps", out)
+
+    def test_system_ca_update_prompts_even_on_lab_host(self):
+        self.stub("id", "echo 1000\n")
+        self.stub("sudo", AUTH_SUDO)
+        self.stub("apt-get", LOG + "exit 0\n")
+        self.run_steps("upgrade_system_store", terminal=True, CONFIGS_NO_AGENTS="1")
+        self.assertIn("sudo -v", self.calls())
+        self.assertIn("--only-upgrade ca-certificates", self.calls())
+
+    def test_tailscale_update_prompts_and_verifies_result(self):
+        self.machine(SYSTEM_BUNDLE)
+        self.stub("id", "echo 1000\n")
+        self.stub("sudo", AUTH_SUDO)
+        out = self.run_steps("tailscale_update", terminal=True, CONFIGS_NO_AGENTS="1")
+        self.assertIn("sudo -v", self.calls())
+        self.assertIn("Now client 1.104.2, daemon 1.104.2", out)
+
+    def test_scan_prunes_directories_owned_by_other_accounts(self):
+        site = self.home / "projects/other-account"
+        site.mkdir(parents=True)
+        (site / "cook.pth").write_text("import cook\n")
+        # Simulate a caller who doesn't own this tree, without chown or sudo.
+        self.stub("id", f"echo {os.getuid() + 10000}\n")
+        out = self.run_steps("litellm")
+        self.assertNotIn("Found traces", out)
+
+    def test_unattended_sudo_does_not_prompt(self):
+        self.stub("id", "echo 1000\n")
+        self.stub("sudo", AUTH_SUDO)
+        out = self.run_steps('sudo_ready "check certificates" || echo skipped')
+        self.assertIn("skipped", out)
+        self.assertNotIn("sudo -v", self.calls())
+
+    def test_root_does_not_need_sudo(self):
+        self.stub("id", "echo 0\n")
+        self.run_steps('sudo_ready "check certificates"; "${SUDO[@]}" true')
+        self.assertNotIn("sudo", self.calls())
+
+    def test_remote_docker_endpoint_is_not_contacted(self):
+        out = self.run_steps("litellm", DOCKER_HOST="ssh://another-host")
+        self.assertIn("remote or unknown endpoint", out)
+        self.assertNotIn("docker ", self.calls())
+        self.assertNotIn("sudo", self.calls())
+
+    def test_local_docker_retries_with_sudo_and_detects_bad_digest(self):
+        # A fixture socket stands in for the system socket; no connection is made.
+        sockpath = self.root / "docker.sock"
+        sock = socket.socket(socket.AF_UNIX)
+        sock.bind(str(sockpath))
+        self.addCleanup(sock.close)
+        self.functions.write_text(self.functions.read_text().replace("/var/run/docker.sock", str(sockpath)))
+        (self.state / "authenticated").touch()
+        self.stub("sudo", AUTH_SUDO)
+        self.stub("docker", LOG + '''[ -n "$FIXTURE_ROOT" ] || exit 1
+echo "litellm:bad sha256:1bbcb1443bc962e45f5aad53fe3d2c30600e0379715fb6c664cdd3ac126c339e"
+''')
+        out = self.run_steps("litellm", ok=False, DOCKER_HOST=f"unix://{sockpath}", CONFIGS_NO_AGENTS="1")
+        self.assertIn("Docker image litellm:bad", out)
+        self.assertIn(f"sudo -n {self.bin}/docker --host unix://{sockpath} images", self.calls())
+        self.assertNotIn("sudo -n find", self.calls())
+
+    def test_non_system_docker_socket_never_uses_sudo(self):
+        out = self.run_steps("litellm", DOCKER_HOST="unix:///run/user/1234/docker.sock")
+        self.assertIn("could not list them", out)
+        self.assertNotIn("sudo", self.calls())
 
 
 if __name__ == "__main__":

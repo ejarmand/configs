@@ -67,8 +67,8 @@ Before downloading anything, the installer runs `install/security-fixes.sh` for
 October 2026's eMudhra CA key compromise and LiteLLM 1.107.0 release. It first
 looks for the LiteLLM payload without starting Python, and stops at once if it
 finds any. It then gives setup and shells a trust store that rejects the forged
-certificates, updates the stores and tools that can be updated without a
-password, removes pip `trusted-host` settings, and makes credential and agent
+certificates, prompts for sudo when a system check or update needs it,
+removes pip `trusted-host` settings, and makes credential and agent
 directories owner-only. If the store still trusts the forged chains, it skips
 every update that would download and setup stops. A clean LiteLLM result lists
 what was checked and what wasn't; it isn't proof the machine is clean.
@@ -82,8 +82,9 @@ It then checks that both the CLI and the running `tailscaled` report 1.104.2
 or later, and stops setup if the update fails or the old daemon is still
 running. It doesn't update when the trust store check failed. If the CLI is
 already patched but the daemon is old, it prints restart instructions. An unreadable daemon version is reported as unverified. It only
-prints what to do for the Mac app, on the lab servers, and when sudo needs a
-password. Package upgrades can briefly interrupt Tailscale connections.
+prints what to do for the Mac app and when sudo is unavailable or declined.
+Hostnames don't determine sudo access. Without a terminal, only cached or
+passwordless sudo is used. Package upgrades can briefly interrupt Tailscale connections.
 `python3 tests/check-tailscale-update.py` checks this against stub commands, and
 `python3 tests/check-security-fixes.py` checks the rest of the script and the
 order of its steps.
