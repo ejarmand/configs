@@ -398,6 +398,25 @@ sudo network/home-ipv4-only 'Home Wi-Fi'
 
 To restore it, run `sudo nmcli connection modify 'Home Wi-Fi' ipv6.method auto`.
 
+On a Mac, use `network/home-ipv4-only-mac` while on the home network:
+
+```bash
+sudo network/home-ipv4-only-mac
+```
+
+macOS turns IPv6 on or off per network service, so turning it off for `Wi-Fi`
+would affect every Wi-Fi network. A root daemon can't read the SSID without
+Location Services. Instead, the script records the MAC address of the current
+IPv4 router as home and installs a LaunchDaemon. Every minute, and whenever
+network settings change, the daemon checks the router behind the default
+route. On the home router it runs `networksetup -setv6off` for that service.
+Anywhere else it restores `-setv6automatic` on the services it turned off. It
+skips services whose IPv6 isn't `Automatic`. When it can't identify the
+router, for example behind a VPN exit node or before ARP answers, it leaves
+everything as it is. Run it again on another home router, such as a mesh
+node, to add that router. `sudo network/home-ipv4-only-mac --remove` uninstalls
+it and restores IPv6.
+
 The Claude, Muse and Codex IPv4 workarounds stay installed on these hosts until
 each one has been switched and checked.
 

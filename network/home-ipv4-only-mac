@@ -1,0 +1,129 @@
+#!/bin/bash
+# The home router resets IPv6 TCP connections whose server sends next, about
+# every 30 seconds, so turn IPv6 off while this Mac is on that network. macOS
+# sets IPv6 per network service, not per Wi-Fi network, so a root daemon
+# recognizes home by its router's MAC address after every network change and
+# turns IPv6 back on elsewhere.
+#   sudo network/home-ipv4-only-mac            on the home network: install
+#   sudo network/home-ipv4-only-mac --remove   uninstall and restore IPv6
+set -euo pipefail
+label=com.github.ejarmand.home-ipv4-only
+program=/usr/local/libexec/home-ipv4-only
+state=/var/db/home-ipv4-only            # routers: home MACs; off: services we turned off
+plist=/Library/LaunchDaemons/$label.plist
+
+# Prints the IPv4 default route's gateway and interface.
+default_route() {
+    route -n get -inet default 2>/dev/null |
+        awk '$1 == "gateway:" { gw = $2 } $1 == "interface:" { dev = $2 }
+             END { if (gw && dev) print gw, dev }'
+}
+
+# Prints the gateway's MAC address. arp only reads the cache, so ping first.
+router_mac() {
+    ping -c 1 -t 1 "$1" > /dev/null 2>&1 || true
+    arp -n -i "$2" "$1" 2> /dev/null | awk '$4 ~ /^[0-9a-f]+(:[0-9a-f]+){5}$/ { print $4 }'
+}
+
+# Prints the enabled network service bound to a device, e.g. en0 -> Wi-Fi.
+# Disabled services are listed as "(*) Name".
+service_for() {
+    networksetup -listnetworkserviceorder |
+        awk -v dev="$1" '/^\([^)]*\) / { name = $0; sub(/^\([^)]*\) /, "", name)
+                                          if ($0 ~ /^\(\*\)/) name = "" }
+                         name != "" && index($0, "Device: " dev ")") { print name; exit }'
+}
+
+restore_except() {
+    local service
+    [[ -s $state/off ]] || return 0
+    while IFS= read -r service; do
+        [[ $service == "$1" ]] && continue
+        networksetup -setv6automatic "$service" || true
+    done < "$state/off"
+    if [[ -n $1 ]] && grep -qxF -- "$1" "$state/off"; then
+        printf '%s\n' "$1" > "$state/off"
+    else
+        : > "$state/off"
+    fi
+}
+
+# launchd runs this every minute and when network settings change; the
+# watched paths can miss a move between networks. Leaves things alone when it
+# can't tell where it is (no route, VPN default route, no ARP reply).
+check() {
+    local gw dev mac service
+    read -r gw dev < <(default_route) || return 0
+    service=$(service_for "$dev")
+    [[ -n $service ]] || return 0
+    mac=$(router_mac "$gw" "$dev")
+    [[ -n $mac ]] || return 0
+    if ! grep -qxF -- "$mac" "$state/routers"; then
+        restore_except ""
+        return
+    fi
+    restore_except "$service"
+    grep -qxF -- "$service" "$state/off" && return
+    # -setv6automatic is the only restore, so leave manual setups alone.
+    [[ $'\n'$(networksetup -getinfo "$service")$'\n' == *$'\nIPv6: Automatic\n'* ]] || return 0
+    networksetup -setv6off "$service"
+    printf '%s\n' "$service" >> "$state/off"
+}
+
+remove() {
+    launchctl bootout "system/$label" 2> /dev/null || true
+    [[ -d $state ]] && restore_except ""
+    rm -rf "$plist" "$program" "$state"
+    echo "Removed; IPv6 is back on for every service this turned off."
+}
+
+install_daemon() {
+    local gw dev mac service
+    read -r gw dev < <(default_route) || { echo "No IPv4 default route; nothing changed." >&2; exit 1; }
+    service=$(service_for "$dev")
+    [[ -n $service ]] || { echo "$dev isn't a network service (VPN?); nothing changed." >&2; exit 1; }
+    mac=$(router_mac "$gw" "$dev")
+    [[ -n $mac ]] || { echo "No ARP entry for router $gw; nothing changed." >&2; exit 1; }
+
+    # Root runs this copy, so it must not stay writable by the user.
+    install -d -o root -g wheel -m 755 "${program%/*}"
+    install -o root -g wheel -m 755 "$0" "$program"
+    install -d -o root -g wheel -m 755 "$state"
+    touch "$state/routers" "$state/off"
+    grep -qxF -- "$mac" "$state/routers" || printf '%s\n' "$mac" >> "$state/routers"
+
+    cat > "$plist" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Written by configs/network/home-ipv4-only-mac; remove with its --remove. -->
+<plist version="1.0">
+<dict>
+    <key>Label</key><string>$label</string>
+    <key>ProgramArguments</key>
+    <array><string>$program</string><string>--check</string></array>
+    <key>WatchPaths</key>
+    <array>
+        <string>/Library/Preferences/SystemConfiguration</string>
+        <string>/private/var/run/resolv.conf</string>
+    </array>
+    <key>StartInterval</key><integer>60</integer>
+    <key>RunAtLoad</key><true/>
+</dict>
+</plist>
+EOF
+    chown root:wheel "$plist"
+    chmod 644 "$plist"
+    launchctl bootout "system/$label" 2> /dev/null || true
+    launchctl bootstrap system "$plist"
+    echo "Router $mac on $service is home; IPv6 stays off there."
+    echo "Run this again on another home router to add it."
+}
+
+[[ $(uname -s) == Darwin ]] || { echo "This is the macOS version; use network/home-ipv4-only." >&2; exit 1; }
+(( EUID == 0 )) || { echo "Run with sudo." >&2; exit 1; }
+case ${1-} in
+    --check) check ;;
+    --remove) remove ;;
+    "") install_daemon ;;
+    *) echo "Usage: sudo $0 [--remove]" >&2; exit 2 ;;
+esac
